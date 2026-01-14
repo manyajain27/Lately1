@@ -10,12 +10,13 @@ import { GlassView } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     Dimensions,
     FlatList,
+    ListRenderItem,
     Pressable,
     StyleSheet,
     View
@@ -77,27 +78,24 @@ export default function PreviewScreen() {
     const dumpType = (params.type as DumpType) || 'weekly';
 
     // Filter out removed photos
-    const visiblePhotos = photos.filter(p => !removedIds.has(p.assetId));
+    const visiblePhotos = useMemo(() => photos.filter(p => !removedIds.has(p.assetId)), [photos, removedIds]);
 
     // Dots Scrubbing Logic
     const [dotsWidth, setDotsWidth] = useState(0);
 
-    const handleScrub = (x: number) => {
+    const handleScrub = useCallback((x: number) => {
         const width = dotsWidth || Dimensions.get('window').width;
         if (width === 0) return;
 
-        // Linear mapping for accurate scrubbing
         const progress = Math.max(0, Math.min(1, x / width));
         const index = Math.floor(progress * visiblePhotos.length);
 
         if (index !== currentIndex && index >= 0 && index < visiblePhotos.length) {
             flatListRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.5 });
             setCurrentIndex(index);
-            Haptics.selectionAsync();
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
         }
-    };
-
-
+    }, [dotsWidth, visiblePhotos.length, currentIndex]);
 
     // Fetch and analyze photos
     useEffect(() => {
@@ -110,25 +108,21 @@ export default function PreviewScreen() {
                 const endDate = new Date(Number(params.endDate));
 
                 const fetchedPhotos = await PhotosService.getPhotosInDateRange(startDate, endDate);
-                console.log(`[Preview] Fetched ${fetchedPhotos.length} photos`);
 
                 if (fetchedPhotos.length === 0) {
                     setIsLoading(false);
                     return;
                 }
 
-                // Check if we have pre-selected IDs from the select screen
                 const selectedIds = params.selectedIds as string | undefined;
 
                 if (selectedIds) {
-                    // Use photos selected from the select screen
                     const ids = selectedIds.split(',');
                     const selectedPhotos: PhotoWithScore[] = [];
 
                     for (const id of ids) {
                         const photo = fetchedPhotos.find(p => p.assetId === id);
                         if (photo) {
-                            // Add default score for photos coming from select screen
                             selectedPhotos.push({
                                 ...photo,
                                 score: {
@@ -144,19 +138,14 @@ export default function PreviewScreen() {
                     }
 
                     setPhotos(selectedPhotos);
-
-                    // Generate smart captions
                     const smartCaptions = generateCaptionSuggestions([], dumpType, 6);
                     setCaptions(smartCaptions);
-
                     setIsLoading(false);
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 } else {
-                    // Run AI selection (legacy path)
                     setIsLoading(false);
                     setIsAnalyzing(true);
 
-                    // Start fun fact rotation
                     let factIndex = 0;
                     factInterval = setInterval(() => {
                         factIndex = (factIndex + 1) % FUN_FACTS.length;
@@ -164,12 +153,10 @@ export default function PreviewScreen() {
                         setProgress(prev => Math.min(prev + 0.15, 0.9));
                     }, 1500);
 
-                    // Run AI selection
                     const selectedPhotos = await selectPhotosForDump(fetchedPhotos, dumpType);
                     setPhotos(selectedPhotos);
                     setProgress(1);
 
-                    // Generate smart captions
                     const scores = selectedPhotos.map(p => p.score);
                     const smartCaptions = generateCaptionSuggestions(scores, dumpType, 6);
                     setCaptions(smartCaptions);
@@ -196,34 +183,33 @@ export default function PreviewScreen() {
         };
     }, [params.startDate, params.endDate, params.selectedIds, dumpType]);
 
-    const handleBack = () => {
+    const handleBack = useCallback(() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         router.back();
-    };
+    }, [router]);
 
-    const handleRemovePhoto = (assetId: string) => {
+    const handleRemovePhoto = useCallback((assetId: string) => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         setRemovedIds(prev => new Set([...prev, assetId]));
-    };
+    }, []);
 
-    const handleScroll = (event: any) => {
+    const handleScroll = useCallback((event: any) => {
         const offsetX = event.nativeEvent.contentOffset.x;
         const index = Math.round(offsetX / PREVIEW_WIDTH);
         if (index !== currentIndex && index >= 0 && index < visiblePhotos.length) {
             setCurrentIndex(index);
-            Haptics.selectionAsync();
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
         }
-    };
+    }, [currentIndex, visiblePhotos.length]);
 
-    const goToSlide = (index: number) => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
-    };
+    const handleMomentumScrollEnd = useCallback(() => {
+        // No extra haptic needed here if we fire in onScroll
+    }, []);
 
-    const handleRegenerateCaption = () => {
+    const handleRegenerateCaption = useCallback(() => {
         Haptics.selectionAsync();
         setCaptionIndex(prev => (prev + 1) % captions.length);
-    };
+    }, [captions.length]);
 
     const handleExport = async () => {
         if (visiblePhotos.length === 0) {
@@ -254,8 +240,6 @@ export default function PreviewScreen() {
             };
 
             await saveDump(dump);
-
-            // Navigate to export screen which handles the actual saving to album
             router.push({
                 pathname: '/create/export',
                 params: { dumpId }
@@ -268,34 +252,34 @@ export default function PreviewScreen() {
         }
     };
 
-    // Loading state
+    const renderItem: ListRenderItem<PhotoWithScore> = useCallback(({ item, index }) => (
+        <PreviewSlide
+            item={item}
+            index={index}
+            total={visiblePhotos.length}
+            isCurrent={currentIndex === index}
+            onLongPress={() => handleRemovePhoto(item.assetId)}
+            isPro={user?.isPro || false}
+        />
+    ), [currentIndex, visiblePhotos.length, handleRemovePhoto, user?.isPro]);
+
+    // Loading/Analyzing
     if (isLoading || isAnalyzing) {
         return (
             <GradientBackground>
                 <View style={[styles.loadingContainer, { paddingTop: insets.top }]}>
-                    <Animated.View entering={FadeIn.duration(300)}>
-                        <ActivityIndicator size="large" color={colors.accent} />
-                    </Animated.View>
-
-                    <Animated.View entering={FadeInDown.delay(200).duration(300)}>
-                        <Text variant="titleM" style={styles.loadingTitle}>
-                            {isLoading ? 'loading photos...' : 'ai is working its magic ✨'}
-                        </Text>
-                    </Animated.View>
-
+                    <ActivityIndicator size="large" color={colors.accent} />
+                    <Text variant="titleM" style={styles.loadingTitle}>
+                        {isLoading ? 'loading photos...' : 'ai is working its magic ✨'}
+                    </Text>
                     {isAnalyzing && (
                         <>
-                            <Animated.View entering={FadeIn.delay(400).duration(300)}>
-                                <View style={styles.progressBar}>
-                                    <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
-                                </View>
-                            </Animated.View>
-
-                            <Animated.View entering={FadeIn.duration(200)} key={funFact}>
-                                <Text variant="bodyS" color="secondary" style={styles.funFact}>
-                                    {funFact}
-                                </Text>
-                            </Animated.View>
+                            <View style={styles.progressBar}>
+                                <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+                            </View>
+                            <Text variant="bodyS" color="secondary" style={styles.funFact}>
+                                {funFact}
+                            </Text>
                         </>
                     )}
                 </View>
@@ -303,7 +287,6 @@ export default function PreviewScreen() {
         );
     }
 
-    // Empty state
     if (visiblePhotos.length === 0) {
         return (
             <GradientBackground>
@@ -314,8 +297,6 @@ export default function PreviewScreen() {
             </GradientBackground>
         );
     }
-
-
 
     return (
         <GradientBackground>
@@ -331,13 +312,13 @@ export default function PreviewScreen() {
                     <View style={styles.headerRight} />
                 </Animated.View>
 
-                {/* Main Carousel Preview */}
+                {/* Main Carousel */}
                 <View style={styles.previewContainer}>
                     <Animated.View entering={FadeInDown.delay(100).duration(400)}>
                         <FlatList
                             ref={flatListRef}
                             data={visiblePhotos}
-                            extraData={currentIndex}
+                            renderItem={renderItem}
                             horizontal
                             pagingEnabled
                             showsHorizontalScrollIndicator={false}
@@ -347,55 +328,16 @@ export default function PreviewScreen() {
                             decelerationRate="fast"
                             contentContainerStyle={styles.carouselContent}
                             keyExtractor={(item) => item.assetId}
-                            renderItem={({ item, index }) => {
-                                const isCurrent = currentIndex === index;
-                                return (
-                                    <Pressable
-                                        onLongPress={() => handleRemovePhoto(item.assetId)}
-                                        style={styles.slideContainer}
-                                    >
-                                        <Animated.View style={[
-                                            styles.slideWrapper,
-                                            isCurrent && {
-                                                transform: [{ scale: 1.02 }]
-                                            }
-                                        ]}>
-                                            <View style={styles.slideInner}>
-                                                <Image
-                                                    source={{ uri: item.uri }}
-                                                    style={styles.slideImage}
-                                                    contentFit="cover"
-                                                />
-
-                                                {/* Watermark preview */}
-                                                {!user?.isPro && (
-                                                    <View style={styles.watermark}>
-                                                        <Text variant="caption" style={styles.watermarkText}>
-                                                            lately.
-                                                        </Text>
-                                                    </View>
-                                                )}
-
-                                                {/* Slide number */}
-                                                <View style={styles.slideNumber}>
-                                                    <Text variant="caption">
-                                                        {index + 1}/{visiblePhotos.length}
-                                                    </Text>
-                                                </View>
-
-                                                {/* Scene tag */}
-                                                {item.score?.sceneTag && item.score.sceneTag !== 'unknown' && (
-                                                    <View style={styles.sceneTag}>
-                                                        <Text variant="caption" style={styles.sceneTagText}>
-                                                            {item.score.sceneTag}
-                                                        </Text>
-                                                    </View>
-                                                )}
-                                            </View>
-                                        </Animated.View>
-                                    </Pressable>
-                                );
-                            }}
+                            onMomentumScrollEnd={handleMomentumScrollEnd}
+                            getItemLayout={(_, index) => ({
+                                length: PREVIEW_WIDTH,
+                                offset: PREVIEW_WIDTH * index,
+                                index,
+                            })}
+                            removeClippedSubviews={true}
+                            initialNumToRender={2}
+                            maxToRenderPerBatch={2}
+                            windowSize={3}
                         />
                     </Animated.View>
 
@@ -426,7 +368,6 @@ export default function PreviewScreen() {
                 >
                     <GlassView style={styles.bottomCard} isInteractive glassEffectStyle="clear">
                         <View style={styles.bottomContent}>
-                            {/* Caption section */}
                             <Pressable onPress={handleRegenerateCaption} style={styles.captionRow}>
                                 <Text variant="bodyS" color="secondary">
                                     "{captions[captionIndex]}"
@@ -435,9 +376,7 @@ export default function PreviewScreen() {
                             </Pressable>
 
                             <View style={styles.bottomInfo}>
-                                <Text variant="titleM">
-                                    looking good! ✨
-                                </Text>
+                                <Text variant="titleM">looking good! ✨</Text>
                                 <Text variant="caption" color="tertiary">
                                     {visiblePhotos.length} slides ready • long press to remove
                                 </Text>
@@ -457,10 +396,55 @@ export default function PreviewScreen() {
     );
 }
 
+// Memoized Slide Component
+const PreviewSlide = memo(({
+    item,
+    index,
+    total,
+    isCurrent,
+    onLongPress,
+    isPro
+}: {
+    item: PhotoWithScore;
+    index: number;
+    total: number;
+    isCurrent: boolean;
+    onLongPress: () => void;
+    isPro: boolean;
+}) => {
+    return (
+        <Pressable onLongPress={onLongPress} style={styles.slideContainer}>
+            <Animated.View style={[
+                styles.slideWrapper,
+                isCurrent && { transform: [{ scale: 1.02 }] }
+            ]}>
+                <View style={styles.slideInner}>
+                    <Image
+                        source={{ uri: item.uri }}
+                        style={styles.slideImage}
+                        contentFit="cover"
+                    />
+                    {!isPro && (
+                        <View style={styles.watermark}>
+                            <Text variant="caption" style={styles.watermarkText}>lately.</Text>
+                        </View>
+                    )}
+                    <View style={styles.slideNumber}>
+                        <Text variant="caption">{index + 1}/{total}</Text>
+                    </View>
+                    {item.score?.sceneTag && item.score.sceneTag !== 'unknown' && (
+                        <View style={styles.sceneTag}>
+                            <Text variant="caption" style={styles.sceneTagText}>{item.score.sceneTag}</Text>
+                        </View>
+                    )}
+                </View>
+            </Animated.View>
+        </Pressable>
+    );
+});
+
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-    },
+    container: { flex: 1 },
     loadingContainer: {
         flex: 1,
         justifyContent: 'center',
@@ -468,10 +452,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.xl,
         gap: spacing.lg,
     },
-    loadingTitle: {
-        marginTop: spacing.lg,
-        textAlign: 'center',
-    },
+    loadingTitle: { marginTop: spacing.lg, textAlign: 'center' },
     progressBar: {
         width: 200,
         height: 4,
@@ -480,15 +461,8 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         marginTop: spacing.md,
     },
-    progressFill: {
-        height: '100%',
-        backgroundColor: colors.accent,
-        borderRadius: 2,
-    },
-    funFact: {
-        marginTop: spacing.lg,
-        textAlign: 'center',
-    },
+    progressFill: { height: '100%', backgroundColor: colors.accent, borderRadius: 2 },
+    funFact: { marginTop: spacing.lg, textAlign: 'center' },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -502,22 +476,17 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    headerCenter: {
-        flex: 1,
-        alignItems: 'center',
-    },
-    headerRight: {
-        width: 40,
-    },
+    headerCenter: { flex: 1, alignItems: 'center' },
+    headerRight: { width: 40 },
     previewContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        paddingTop: spacing['2xl'], // Push down from header
+        paddingTop: spacing['2xl'],
     },
     carouselContent: {
         paddingHorizontal: spacing.xl,
-        paddingVertical: spacing.xl, // Add space for shadow/glow
+        paddingVertical: spacing.xl,
     },
     slideContainer: {
         width: PREVIEW_WIDTH,
@@ -529,16 +498,9 @@ const styles = StyleSheet.create({
         height: PREVIEW_HEIGHT,
         borderRadius: radius.xl,
         backgroundColor: colors.surface1,
-        // No overflow hidden here to allow shadows
     },
-    slideInner: {
-        flex: 1,
-        borderRadius: radius.xl,
-        overflow: 'hidden', // Clip inner content (image)
-    },
-    slideImage: {
-        flex: 1,
-    },
+    slideInner: { flex: 1, borderRadius: radius.xl, overflow: 'hidden' },
+    slideImage: { flex: 1 },
     watermark: {
         position: 'absolute',
         bottom: spacing.md,
@@ -572,16 +534,12 @@ const styles = StyleSheet.create({
         paddingVertical: spacing.xs,
         borderRadius: radius.sm,
     },
-    sceneTagText: {
-        fontSize: 10,
-        fontWeight: '600',
-        color: '#000',
-    },
+    sceneTagText: { fontSize: 10, fontWeight: '600', color: '#000' },
     dotsContainer: {
         flexDirection: 'row',
         justifyContent: 'center',
         alignItems: 'center',
-        marginTop: -spacing.md, // Pull up closer
+        marginTop: -spacing.md,
         marginBottom: spacing.md,
         gap: spacing.xs,
         height: 40,
@@ -596,36 +554,22 @@ const styles = StyleSheet.create({
         borderRadius: 4,
         backgroundColor: colors.surface2,
     },
-    dotActive: {
-        backgroundColor: colors.accent,
-        width: 24,
-    },
+    dotActive: { backgroundColor: colors.accent, width: 24 },
     bottomBar: {
         paddingHorizontal: spacing.lg,
-        paddingTop: spacing.sm, // Reduced from md
+        paddingTop: spacing.sm,
     },
-    bottomCard: {
-        borderRadius: radius.xl,
-        padding: spacing.md, // Reduced from lg
-        overflow: 'hidden',
-    },
-    bottomContent: {
-        gap: spacing.sm, // Reduced from md
-    },
+    bottomCard: { borderRadius: radius.xl, padding: spacing.md, overflow: 'hidden' },
+    bottomContent: { gap: spacing.sm },
     captionRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingVertical: spacing.xs,
-        marginBottom: spacing.xs, // Added slightly
+        marginBottom: spacing.xs,
         borderBottomWidth: 0.5,
         borderBottomColor: colors.borderSoft,
     },
-    bottomInfo: {
-        alignItems: 'center',
-        gap: spacing.xs,
-    },
-    exportButton: {
-        marginTop: spacing.sm,
-    },
+    bottomInfo: { alignItems: 'center', gap: spacing.xs },
+    exportButton: { marginTop: spacing.sm },
 });

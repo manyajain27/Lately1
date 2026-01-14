@@ -10,22 +10,21 @@ import { GlassView } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     Dimensions,
     FlatList,
+    ListRenderItem,
     Pressable,
     StyleSheet,
     View,
 } from 'react-native';
 import Animated, {
-    FadeIn,
-    FadeInDown,
     useAnimatedStyle,
     useSharedValue,
-    withSpring,
+    withSpring
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, GradientBackground, Text } from '../../components/ui';
@@ -76,7 +75,6 @@ export default function SelectScreen() {
 
         async function loadAndAnalyze() {
             try {
-                // Check permission
                 const hasPermission = await PhotosService.requestPermissions();
                 if (!hasPermission) {
                     Alert.alert('permission needed', 'please enable photo access in settings');
@@ -84,7 +82,6 @@ export default function SelectScreen() {
                     return;
                 }
 
-                // Get date range from params
                 const startDate = new Date(Number(params.startDate));
                 const endDate = new Date(Number(params.endDate));
 
@@ -96,7 +93,6 @@ export default function SelectScreen() {
                     return;
                 }
 
-                // Map to our format
                 const photos: PhotoWithSelection[] = fetchedPhotos.map((p) => ({
                     ...p,
                     selected: false,
@@ -106,7 +102,6 @@ export default function SelectScreen() {
                 setAllPhotos(photos);
                 setStage('analyzing');
 
-                // Start fun fact rotation
                 let factIndex = 0;
                 factInterval = setInterval(() => {
                     factIndex = (factIndex + 1) % FUN_FACTS.length;
@@ -114,15 +109,12 @@ export default function SelectScreen() {
                     setProgress(prev => Math.min(prev + 0.1, 0.9));
                 }, 1500);
 
-                // Run AI Analysis (Moments -> Bursts -> Recipe)
                 const selectedCandidates = await analyzeAndPick(fetchedPhotos);
                 setProgress(1);
 
-                // Map results to UI state
                 const selectedIds = new Set(selectedCandidates.map(p => p.assetId));
                 let positionCounter = 1;
 
-                // Create the final state maps
                 const newAllPhotos: PhotoWithSelection[] = photos.map(p => {
                     const isSelected = selectedIds.has(p.assetId);
                     return {
@@ -153,13 +145,12 @@ export default function SelectScreen() {
         return () => {
             if (factInterval) clearInterval(factInterval);
         };
-    }, [params.startDate, params.endDate]);
+    }, [params.startDate, params.endDate, router]);
 
-    const handleTogglePhoto = (photo: PhotoWithSelection) => {
+    const handleTogglePhoto = useCallback((photo: PhotoWithSelection) => {
         Haptics.selectionAsync();
 
         if (photo.selected) {
-            // Deselect
             setSelectedPhotos(prev => {
                 const filtered = prev.filter(p => p.assetId !== photo.assetId);
                 return filtered.map((p, i) => ({ ...p, position: i + 1 }));
@@ -168,7 +159,6 @@ export default function SelectScreen() {
                 p.assetId === photo.assetId ? { ...p, selected: false, position: null } : p
             ));
         } else {
-            // Select (if under limit)
             if (selectedPhotos.length >= 20) {
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
                 Alert.alert('max 20 photos', 'remove one to add another');
@@ -182,7 +172,7 @@ export default function SelectScreen() {
                 p.assetId === photo.assetId ? updatedPhoto : p
             ));
         }
-    };
+    }, [selectedPhotos.length]);
 
     const handleContinue = () => {
         if (selectedPhotos.length < 1) {
@@ -193,7 +183,6 @@ export default function SelectScreen() {
 
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-        // Navigate to preview with selected photos
         router.push({
             pathname: '/create/preview',
             params: {
@@ -210,34 +199,32 @@ export default function SelectScreen() {
         router.back();
     };
 
-    // Loading/analyzing state
+    const renderItem: ListRenderItem<PhotoWithSelection> = useCallback(({ item }) => (
+        <PhotoTile
+            photo={item}
+            onPress={() => handleTogglePhoto(item)}
+        />
+    ), [handleTogglePhoto]);
+
+    // Optimize data
+    const memoizedAllPhotos = useMemo(() => allPhotos, [allPhotos]);
+
     if (stage === 'loading' || stage === 'analyzing') {
         return (
             <GradientBackground>
                 <View style={[styles.loadingContainer, { paddingTop: insets.top }]}>
-                    <Animated.View entering={FadeIn.duration(300)}>
-                        <ActivityIndicator size="large" color={colors.accent} />
-                    </Animated.View>
-
-                    <Animated.View entering={FadeInDown.delay(200).duration(300)}>
-                        <Text variant="titleM" style={styles.loadingTitle}>
-                            {stage === 'loading' ? 'loading photos...' : 'ai is working its magic ✨'}
-                        </Text>
-                    </Animated.View>
-
+                    <ActivityIndicator size="large" color={colors.accent} />
+                    <Text variant="titleM" style={styles.loadingTitle}>
+                        {stage === 'loading' ? 'loading photos...' : 'ai is working its magic ✨'}
+                    </Text>
                     {stage === 'analyzing' && (
                         <>
-                            <Animated.View entering={FadeIn.delay(400).duration(300)}>
-                                <View style={styles.progressBar}>
-                                    <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
-                                </View>
-                            </Animated.View>
-
-                            <Animated.View entering={FadeIn.duration(200)} key={funFact}>
-                                <Text variant="bodyS" color="secondary" style={styles.funFact}>
-                                    {funFact}
-                                </Text>
-                            </Animated.View>
+                            <View style={styles.progressBar}>
+                                <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+                            </View>
+                            <Text variant="bodyS" color="secondary" style={styles.funFact}>
+                                {funFact}
+                            </Text>
                         </>
                     )}
                 </View>
@@ -245,7 +232,6 @@ export default function SelectScreen() {
         );
     }
 
-    // Error state
     if (stage === 'error') {
         return (
             <GradientBackground>
@@ -257,7 +243,6 @@ export default function SelectScreen() {
         );
     }
 
-    // Selection grid
     return (
         <GradientBackground>
             <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -267,63 +252,48 @@ export default function SelectScreen() {
                         <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
                     </Pressable>
                     <View style={styles.headerCenter}>
-                        <Text variant="titleM">
-                            {selectedPhotos.length} selected
-                        </Text>
+                        <Text variant="titleM">{selectedPhotos.length} selected</Text>
                     </View>
                     <View style={styles.headerRight} />
                 </View>
 
                 {/* Photo Grid */}
                 <FlatList
-                    data={allPhotos}
+                    data={memoizedAllPhotos}
                     numColumns={3}
                     keyExtractor={(item) => item.assetId}
                     contentContainerStyle={styles.gridContent}
                     showsVerticalScrollIndicator={false}
-                    bounces={false}
-                    overScrollMode="never"
+                    removeClippedSubviews={true}
+                    initialNumToRender={12}
+                    maxToRenderPerBatch={12}
+                    windowSize={7}
+                    getItemLayout={(_, index) => ({
+                        length: PHOTO_SIZE + spacing.xs * 2,
+                        offset: (PHOTO_SIZE + spacing.xs * 2) * Math.floor(index / 3),
+                        index,
+                    })}
                     ListFooterComponent={
-                        <View style={{ alignItems: 'center', justifyContent: 'center', paddingTop: spacing['2xl'], paddingBottom: 120, width: '100%' }}>
-                            <Text
-                                style={{
-                                    fontSize: 80,
-                                    lineHeight: 80,
-                                    fontWeight: '900',
-                                    color: colors.accent,
-                                    opacity: 0.2,
-                                    letterSpacing: -2,
-                                    width: '100%',
-                                    textAlign: 'center'
-                                }}
-                            >
-                                LATELY
-                            </Text>
+                        <View style={styles.footer}>
+                            <Text style={styles.footerText}>LATELY</Text>
                         </View>
                     }
-                    renderItem={({ item }) => (
-                        <PhotoTile
-                            photo={item}
-                            onPress={() => handleTogglePhoto(item)}
-                        />
-                    )}
+                    renderItem={renderItem}
                 />
 
                 {/* Bottom Bar */}
                 <View style={[styles.bottomBar, { paddingBottom: insets.bottom + spacing.lg }]}>
-                    <View style={[styles.bottomCard, { overflow: 'hidden', backgroundColor: 'transparent' }]}>
-                        <GlassView style={styles.bottomCard} glassEffectStyle='clear'>
-                            <View style={styles.bottomContent}>
-                                <Button
-                                    title={`continue (${selectedPhotos.length}/20 photos)`}
-                                    onPress={handleContinue}
-                                    disabled={selectedPhotos.length < 1}
-                                    height={56}
-                                    style={[styles.continueButton, { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 8 }]}
-                                />
-                            </View>
-                        </GlassView>
-                    </View>
+                    <GlassView style={styles.bottomCard} glassEffectStyle='clear'>
+                        <View style={styles.bottomContent}>
+                            <Button
+                                title={`continue (${selectedPhotos.length}/20 photos)`}
+                                onPress={handleContinue}
+                                disabled={selectedPhotos.length < 1}
+                                height={56}
+                                style={styles.continueButton}
+                            />
+                        </View>
+                    </GlassView>
                 </View>
             </View>
         </GradientBackground>
@@ -331,7 +301,7 @@ export default function SelectScreen() {
 }
 
 // Photo tile component
-function PhotoTile({ photo, onPress }: { photo: PhotoWithSelection; onPress: () => void }) {
+const PhotoTile = memo(({ photo, onPress }: { photo: PhotoWithSelection; onPress: () => void }) => {
     const scale = useSharedValue(1);
 
     const animatedStyle = useAnimatedStyle(() => ({
@@ -359,37 +329,23 @@ function PhotoTile({ photo, onPress }: { photo: PhotoWithSelection; onPress: () 
                     style={styles.photoImage}
                     contentFit="cover"
                 />
-
-                {/* Selection overlay */}
                 {photo.selected && (
                     <View style={styles.selectedOverlay}>
                         <View style={styles.positionBadge}>
-                            <Text variant="caption" style={styles.positionText}>
-                                {photo.position}
-                            </Text>
+                            <Text variant="caption" style={styles.positionText}>{photo.position}</Text>
                         </View>
                     </View>
                 )}
-
-                {/* Checkbox */}
-                <View style={[
-                    styles.checkbox,
-                    photo.selected && styles.checkboxSelected
-                ]}>
-                    {photo.selected && (
-                        <Ionicons name="checkmark" size={14} color={colors.bg} />
-                    )}
+                <View style={[styles.checkbox, photo.selected && styles.checkboxSelected]}>
+                    {photo.selected && <Ionicons name="checkmark" size={14} color={colors.bg} />}
                 </View>
             </Animated.View>
         </Pressable>
     );
-}
+});
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: colors.bg,
-    },
+    container: { flex: 1, backgroundColor: colors.bg },
     loadingContainer: {
         flex: 1,
         justifyContent: 'center',
@@ -397,10 +353,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.xl,
         gap: spacing.lg,
     },
-    loadingTitle: {
-        marginTop: spacing.lg,
-        textAlign: 'center',
-    },
+    loadingTitle: { marginTop: spacing.lg, textAlign: 'center' },
     progressBar: {
         width: 200,
         height: 4,
@@ -409,15 +362,8 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         marginTop: spacing.md,
     },
-    progressFill: {
-        height: '100%',
-        backgroundColor: colors.accent,
-        borderRadius: 2,
-    },
-    funFact: {
-        marginTop: spacing.lg,
-        textAlign: 'center',
-    },
+    progressFill: { height: '100%', backgroundColor: colors.accent, borderRadius: 2 },
+    funFact: { marginTop: spacing.lg, textAlign: 'center' },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -433,30 +379,16 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    headerCenter: {
-        flex: 1,
-        alignItems: 'center',
-    },
-    headerRight: {
-        width: 40,
-    },
-    gridContent: {
-        padding: spacing.xl,
-        paddingBottom: spacing.xl, // Just standard padding
-    },
+    headerCenter: { flex: 1, alignItems: 'center' },
+    headerRight: { width: 40 },
+    gridContent: { padding: spacing.xl },
     photoTile: {
         width: PHOTO_SIZE,
         height: PHOTO_SIZE,
         margin: spacing.xs,
     },
-    photoTileInner: {
-        flex: 1,
-        borderRadius: radius.md,
-        overflow: 'hidden',
-    },
-    photoImage: {
-        flex: 1,
-    },
+    photoTileInner: { flex: 1, borderRadius: radius.md, overflow: 'hidden' },
+    photoImage: { flex: 1 },
     selectedOverlay: {
         ...StyleSheet.absoluteFillObject,
         backgroundColor: 'rgba(79, 240, 183, 0.25)',
@@ -475,11 +407,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    positionText: {
-        color: colors.bg,
-        fontWeight: '700',
-        fontSize: 11,
-    },
+    positionText: { color: colors.bg, fontWeight: '700', fontSize: 11 },
     checkbox: {
         position: 'absolute',
         top: spacing.xs,
@@ -493,10 +421,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    checkboxSelected: {
-        backgroundColor: colors.accent,
-        borderColor: colors.accent,
-    },
+    checkboxSelected: { backgroundColor: colors.accent, borderColor: colors.accent },
     bottomBar: {
         position: 'absolute',
         bottom: 0,
@@ -505,17 +430,24 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.xl * 1.5,
         paddingTop: spacing.md,
         zIndex: 100,
-        elevation: 10,
     },
-    bottomCard: {
-        borderRadius: radius.xl,
-        padding: spacing.md,
-        overflow: 'hidden',
-    },
-    bottomContent: {
+    bottomCard: { borderRadius: radius.xl, padding: spacing.md, overflow: 'hidden' },
+    bottomContent: { justifyContent: 'center' },
+    continueButton: { width: '100%' },
+    footer: {
+        alignItems: 'center',
         justifyContent: 'center',
-    },
-    continueButton: {
+        paddingTop: spacing['2xl'],
+        paddingBottom: 120,
         width: '100%',
+    },
+    footerText: {
+        fontSize: 80,
+        lineHeight: 80,
+        fontWeight: '900',
+        color: colors.accent,
+        opacity: 0.2,
+        letterSpacing: -2,
+        textAlign: 'center',
     },
 });

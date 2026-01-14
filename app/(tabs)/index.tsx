@@ -9,7 +9,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { GlassView } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
     Extrapolate,
@@ -54,13 +54,13 @@ const triggerMediumImpact = () => {
 };
 
 const triggerLightImpact = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Haptics.selectionAsync();
 };
 
 /**
  * Animated Letter component (Stable, follows Rule of Hooks)
  */
-function RefreshLetter({
+const RefreshLetter = memo(({
     letter,
     index,
     scrollY
@@ -68,7 +68,7 @@ function RefreshLetter({
     letter: string;
     index: number;
     scrollY: SharedValue<number>;
-}) {
+}) => {
     const progressInput = -index * 15 - 40;
 
     const animatedStyle = useAnimatedStyle(() => {
@@ -102,7 +102,7 @@ function RefreshLetter({
             {letter}
         </Animated.Text>
     );
-}
+});
 
 export default function HomeScreen() {
     const insets = useSafeAreaInsets();
