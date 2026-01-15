@@ -1,361 +1,460 @@
+/**
+ * Profile Screen - Minimal Premium Design
+ * Inspired by Apple's design philosophy: restraint, clarity, depth
+ */
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GlassView } from 'expo-glass-effect';
-import { useEffect, useState } from 'react';
+import * as Linking from 'expo-linking';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
-import Animated, {
-    Easing,
-    useAnimatedStyle,
-    useSharedValue,
-    withRepeat,
-    withTiming,
-} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Button, GradientBackground, Text } from '../../components/ui';
-import { colors, spacing } from '../../constants/theme';
+import { BottomSheet, GradientBackground, Text } from '../../components/ui';
+import { colors, radius, spacing } from '../../constants/theme';
 import { useAuth } from '../../lib/hooks';
-import { getSyncStatus, syncAllDumps } from '../../services/sync';
-
-interface SettingsRowProps {
-    icon: keyof typeof Ionicons.glyphMap;
-    title: string;
-    subtitle?: string;
-    onPress?: () => void;
-    rightElement?: React.ReactNode;
-}
-
-function SettingsRow({ icon, title, subtitle, onPress, rightElement }: SettingsRowProps) {
-    return (
-        <Pressable onPress={onPress} disabled={!onPress}>
-            <View style={styles.settingsRow}>
-                <View style={styles.settingsRowIcon}>
-                    <Ionicons name={icon} size={20} color={colors.textSecondary} />
-                </View>
-                <View style={styles.settingsRowContent}>
-                    <Text variant="bodyM" style={styles.settingTitle}>{title}</Text>
-                    {subtitle && <Text variant="caption" style={styles.settingSubtitle}>{subtitle}</Text>}
-                </View>
-                {rightElement || (onPress && (
-                    <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
-                ))}
-            </View>
-        </Pressable>
-    );
-}
+import { syncAllDumps } from '../../services/sync';
 
 export default function ProfileScreen() {
     const insets = useSafeAreaInsets();
     const { user, logout } = useAuth();
     const [isSyncing, setIsSyncing] = useState(false);
     const [notifications, setNotifications] = useState(true);
-    const [lastSyncResult, setLastSyncResult] = useState<string>('never synced');
-    const [pendingUploads, setPendingUploads] = useState(0);
-
-    // Check sync status on mount
-    useEffect(() => {
-        getSyncStatus().then(status => {
-            setPendingUploads(status.pendingUploads);
-        });
-    }, []);
-
-    // Sync icon rotation animation
-    const rotation = useSharedValue(0);
-    const animatedSyncStyle = useAnimatedStyle(() => ({
-        transform: [{ rotate: `${rotation.value}deg` }],
-    }));
+    const [activeModal, setActiveModal] = useState<'privacy' | 'terms' | null>(null);
 
     const handleSync = async () => {
         setIsSyncing(true);
-        rotation.value = withRepeat(
-            withTiming(360, { duration: 1000, easing: Easing.linear }),
-            -1,
-            false
-        );
-
         try {
-            const result = await syncAllDumps();
-            setLastSyncResult(`synced ${result.success} dumps`);
-            setPendingUploads(result.failed);
-        } catch (e) {
-            setLastSyncResult('sync failed');
+            await syncAllDumps();
         } finally {
             setIsSyncing(false);
-            rotation.value = 0;
         }
+    };
+
+    const displayName = user?.email?.split('@')[0] || 'friend';
+
+    const handleEmailSupport = () => {
+        Linking.openURL('mailto:jainmanya2701@gmail.com?subject=Lately Support Request');
+    };
+
+    const handlePrivacyPolicy = () => {
+        setActiveModal('privacy');
+    };
+
+    const handleTerms = () => {
+        setActiveModal('terms');
     };
 
     return (
         <GradientBackground style={styles.screen}>
-            <View style={styles.gradientLayer} />
             <ScrollView
                 style={styles.scrollView}
-                contentContainerStyle={{ paddingTop: insets.top + spacing.lg, paddingBottom: 100 }}
+                contentContainerStyle={{
+                    paddingTop: insets.top + spacing['3xl'],
+                    paddingHorizontal: spacing.xl,
+                    paddingBottom: 120,
+                }}
                 showsVerticalScrollIndicator={false}
             >
                 {/* Header */}
                 <View style={styles.header}>
-                    <Text variant="titleXL" style={styles.title}>profile</Text>
+                    <Text variant="titleXL" style={styles.greeting}>
+                        {displayName}
+                    </Text>
+                    <Text variant="bodyS" color="secondary" style={styles.email}>
+                        {user?.email}
+                    </Text>
                 </View>
 
-                {/* Pro Banner */}
-                <GlassView style={styles.proBanner} isInteractive>
-                    <View style={styles.proBannerContent}>
-                        <View style={styles.proIconContainer}>
-                            <Ionicons name="diamond" size={24} color={colors.accent} />
-                        </View>
-                        <View style={styles.proBannerText}>
-                            <Text variant="bodyL" style={styles.proTitle}>unlock lately pro</Text>
-                            <Text variant="caption" style={styles.proSubtitle}>
-                                remove watermarks, unlimited exports
-                            </Text>
-                        </View>
-                    </View>
-                    <Button
-                        title="upgrade"
-                        size="small"
-                        onPress={() => { }}
-                    />
-                </GlassView>
-
-                {/* User Info */}
-                <GlassView style={styles.userCard} isInteractive>
-                    <View style={styles.avatar}>
-                        <Text variant="titleL" style={styles.avatarText}>{user?.email?.[0]?.toUpperCase() || 'U'}</Text>
-                    </View>
-                    <View style={styles.userInfo}>
-                        <Text variant="bodyL" style={styles.userEmail}>{user?.email || 'user@example.com'}</Text>
-                        <Text variant="caption" style={styles.userPlan}>free plan</Text>
-                    </View>
-                </GlassView>
-
-                {/* Sync Section */}
-                <View style={styles.section}>
-                    <Text variant="titleM" style={styles.sectionTitle}>sync</Text>
-                    <GlassView style={styles.settingsGroup} isInteractive>
-                        <Pressable onPress={handleSync} disabled={isSyncing}>
-                            <View style={styles.settingsRow}>
-                                <View style={styles.settingsRowIcon}>
-                                    <Animated.View style={animatedSyncStyle}>
-                                        <Ionicons name="sync" size={20} color={colors.textSecondary} />
-                                    </Animated.View>
-                                </View>
-                                <View style={styles.settingsRowContent}>
-                                    <Text variant="bodyM" style={styles.settingTitle}>sync to cloud</Text>
-                                    <Text variant="caption" style={styles.settingSubtitle}>
-                                        {isSyncing ? 'syncing...' : 'last synced: never'}
+                {/* Pro Card - Minimal & Elegant */}
+                <View style={styles.proSection}>
+                    <GlassView style={styles.proCard} glassEffectStyle="clear">
+                        <View style={styles.proContent}>
+                            <View>
+                                <View style={styles.proLabelRow}>
+                                    <View style={styles.proDot} />
+                                    <Text variant="caption" style={styles.proLabel}>
+                                        LATELY PRO
                                     </Text>
                                 </View>
-                                {!isSyncing && (
-                                    <Text variant="caption" color="accent">sync now</Text>
-                                )}
+                                <Text variant="titleM" style={styles.proTitle}>
+                                    go premium
+                                </Text>
+                                <Text variant="bodyS" color="secondary" style={styles.proDescription}>
+                                    unlimited exports, no watermarks
+                                </Text>
                             </View>
-                        </Pressable>
+                            <Pressable style={styles.upgradeButton}>
+                                <Text style={styles.upgradeButtonText}>upgrade</Text>
+                            </Pressable>
+                        </View>
                     </GlassView>
                 </View>
 
-                {/* Settings Section */}
-                <View style={styles.section}>
-                    <Text variant="titleM" style={styles.sectionTitle}>settings</Text>
-                    <GlassView style={styles.settingsGroup} isInteractive>
-                        <SettingsRow
-                            icon="notifications-outline"
-                            title="notifications"
-                            subtitle="weekly dump reminders"
-                            rightElement={
-                                <Switch
-                                    value={notifications}
-                                    onValueChange={setNotifications}
-                                    trackColor={{ false: colors.surface2, true: colors.accent }}
-                                    thumbColor={notifications ? colors.bg : colors.textTertiary}
-                                />
-                            }
-                        />
-                        <View style={styles.divider} />
-                        <SettingsRow
-                            icon="image-outline"
-                            title="export quality"
-                            subtitle="high (original)"
-                            onPress={() => { }}
-                        />
-                        <View style={styles.divider} />
-                        <SettingsRow
-                            icon="grid-outline"
-                            title="default ratio"
-                            subtitle="instagram square (1:1)"
-                            onPress={() => { }}
-                        />
-                    </GlassView>
+                {/* Settings Groups */}
+                <View style={styles.settingsContainer}>
+                    {/* Account */}
+                    <View style={styles.settingsGroup}>
+                        <Text variant="caption" color="tertiary" style={styles.groupLabel}>
+                            ACCOUNT
+                        </Text>
+                        <GlassView style={styles.settingsCard} glassEffectStyle="clear">
+                            <SettingRow
+                                icon="cloud-upload-outline"
+                                title="sync"
+                                value={isSyncing ? 'syncing...' : 'up to date'}
+                                onPress={handleSync}
+                            />
+                            <Divider />
+                            <SettingRow
+                                icon="notifications-outline"
+                                title="notifications"
+                                rightElement={
+                                    <Switch
+                                        value={notifications}
+                                        onValueChange={setNotifications}
+                                        trackColor={{ false: colors.surface2, true: colors.accentGlow }}
+                                        thumbColor={notifications ? colors.accent : colors.textTertiary}
+                                        ios_backgroundColor={colors.surface2}
+                                    />
+                                }
+                            />
+                        </GlassView>
+                    </View>
+
+                    {/* Preferences */}
+                    <View style={styles.settingsGroup}>
+                        <Text variant="caption" color="tertiary" style={styles.groupLabel}>
+                            PREFERENCES
+                        </Text>
+                        <GlassView style={styles.settingsCard} glassEffectStyle="clear">
+                            <SettingRow icon="camera-outline" title="export quality" value="original" />
+                            <Divider />
+                            <SettingRow icon="color-palette-outline" title="appearance" value="dark" />
+                        </GlassView>
+                    </View>
+
+                    {/* Support */}
+                    <View style={styles.settingsGroup}>
+                        <Text variant="caption" color="tertiary" style={styles.groupLabel}>
+                            SUPPORT
+                        </Text>
+                        <GlassView style={styles.settingsCard} glassEffectStyle="clear">
+                            <SettingRow
+                                icon="mail-outline"
+                                title="help center"
+                                value="contact us"
+                                onPress={handleEmailSupport}
+                            />
+                            <Divider />
+                            <SettingRow
+                                icon="shield-checkmark-outline"
+                                title="privacy policy"
+                                onPress={handlePrivacyPolicy}
+                            />
+                            <Divider />
+                            <SettingRow
+                                icon="document-text-outline"
+                                title="terms & conditions"
+                                onPress={handleTerms}
+                            />
+                            <Divider />
+                            <SettingRow icon="information-circle-outline" title="version" value="1.0.0" />
+                        </GlassView>
+                    </View>
                 </View>
 
-                {/* About Section */}
-                <View style={styles.section}>
-                    <Text variant="titleM" style={styles.sectionTitle}>about</Text>
-                    <GlassView style={styles.settingsGroup} isInteractive>
-                        <SettingsRow
-                            icon="help-circle-outline"
-                            title="help & support"
-                            onPress={() => { }}
-                        />
-                        <View style={styles.divider} />
-                        <SettingsRow
-                            icon="document-text-outline"
-                            title="privacy policy"
-                            onPress={() => { }}
-                        />
-                        <View style={styles.divider} />
-                        <SettingsRow
-                            icon="information-circle-outline"
-                            title="version"
-                            subtitle="1.0.0"
-                        />
-                    </GlassView>
-                </View>
-
-                {/* Logout */}
-                <Button
-                    title="sign out"
-                    variant="ghost"
-                    onPress={logout}
-                    style={styles.logoutButton}
-                />
-
-                <View style={{ height: 100 }} />
+                {/* Sign Out */}
+                <Pressable onPress={logout} style={styles.signOutButton}>
+                    <Text variant="bodyM" color="secondary">
+                        sign out
+                    </Text>
+                </Pressable>
             </ScrollView>
+
+            {/* Bottom Sheet Modals */}
+            <BottomSheet
+                visible={activeModal === 'privacy'}
+                onClose={() => setActiveModal(null)}
+                title="Privacy Policy"
+            >
+                <View style={styles.modalContent}>
+                    <Text variant="caption" color="tertiary" style={styles.modalDate}>
+                        Last updated: January 2026
+                    </Text>
+
+                    <Text variant="bodyM" style={styles.modalSection}>
+                        Your privacy matters to us. Lately is designed with privacy at its core.
+                    </Text>
+
+                    <View style={styles.policySection}>
+                        <Text variant="bodyM" style={styles.policyTitle}>Data Collection</Text>
+                        <Text variant="bodyS" color="secondary" style={styles.policyText}>
+                            • We only collect your email address for authentication{"\n"}
+                            • Photo analysis happens locally on your device{"\n"}
+                            • We don't sell or share your personal data{"\n"}
+                            • Your photo dumps are stored securely
+                        </Text>
+                    </View>
+
+                    <View style={styles.policySection}>
+                        <Text variant="bodyM" style={styles.policyTitle}>Your Photos</Text>
+                        <Text variant="bodyS" color="secondary" style={styles.policyText}>
+                            • Photos never leave your device during analysis{"\n"}
+                            • We do not store or have access to your images{"\n"}
+                            • Only metadata (scores, tags) is synced to cloud{"\n"}
+                            • You can delete your data anytime
+                        </Text>
+                    </View>
+
+                    <View style={styles.policySection}>
+                        <Text variant="bodyM" style={styles.policyTitle}>Third-Party Services</Text>
+                        <Text variant="bodyS" color="secondary" style={styles.policyText}>
+                            • We use Supabase for authentication and data storage{"\n"}
+                            • Analytics are anonymized and minimal
+                        </Text>
+                    </View>
+                </View>
+            </BottomSheet>
+
+            <BottomSheet
+                visible={activeModal === 'terms'}
+                onClose={() => setActiveModal(null)}
+                title="Terms & Conditions"
+            >
+                <View style={styles.modalContent}>
+                    <Text variant="caption" color="tertiary" style={styles.modalDate}>
+                        Last updated: January 2026
+                    </Text>
+
+                    <Text variant="bodyM" style={styles.modalSection}>
+                        By using Lately, you agree to be bound by these Terms and Conditions.
+                    </Text>
+
+                    <View style={styles.policySection}>
+                        <Text variant="bodyM" style={styles.policyTitle}>Acceptable Use</Text>
+                        <Text variant="bodyS" color="secondary" style={styles.policyText}>
+                            • You must be at least 13 years old to use Lately{"\n"}
+                            • You own all content you create{"\n"}
+                            • Do not use the app for illegal purposes{"\n"}
+                            • Respect others' privacy and content
+                        </Text>
+                    </View>
+
+                    <View style={styles.policySection}>
+                        <Text variant="bodyM" style={styles.policyTitle}>Account & Subscription</Text>
+                        <Text variant="bodyS" color="secondary" style={styles.policyText}>
+                            • Free tier includes basic features{"\n"}
+                            • Pro subscription unlocks premium features{"\n"}
+                            • Subscriptions auto-renew unless cancelled{"\n"}
+                            • Refunds handled per platform policy (App Store/Play Store)
+                        </Text>
+                    </View>
+
+                    <View style={styles.policySection}>
+                        <Text variant="bodyM" style={styles.policyTitle}>Limitations</Text>
+                        <Text variant="bodyS" color="secondary" style={styles.policyText}>
+                            • The app is provided "as is"{"\n"}
+                            • We are not liable for data loss{"\n"}
+                            • Features may change or be discontinued{"\n"}
+                            • We reserve the right to suspend accounts violating these Terms
+                        </Text>
+                    </View>
+                </View>
+            </BottomSheet>
         </GradientBackground>
     );
+}
+
+// Setting Row Component
+function SettingRow({
+    icon,
+    title,
+    value,
+    onPress,
+    rightElement,
+}: {
+    icon: keyof typeof Ionicons.glyphMap;
+    title: string;
+    value?: string;
+    onPress?: () => void;
+    rightElement?: React.ReactNode;
+}) {
+    return (
+        <Pressable onPress={onPress} style={styles.settingRow} disabled={!onPress}>
+            <Ionicons name={icon} size={22} color={colors.textSecondary} />
+            <Text variant="bodyM" style={styles.settingTitle}>
+                {title}
+            </Text>
+            <View style={styles.settingRight}>
+                {value && (
+                    <Text variant="bodyS" color="secondary">
+                        {value}
+                    </Text>
+                )}
+                {rightElement}
+                {onPress && !rightElement && (
+                    <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
+                )}
+            </View>
+        </Pressable>
+    );
+}
+
+function Divider() {
+    return <View style={styles.divider} />;
 }
 
 const styles = StyleSheet.create({
     screen: {
         flex: 1,
     },
-    gradientLayer: {
-        ...StyleSheet.absoluteFillObject,
-        opacity: 0.6,
-    },
     scrollView: {
         flex: 1,
     },
     header: {
-        paddingHorizontal: spacing.lg,
-        marginBottom: spacing.xl,
+        marginBottom: spacing['4xl'],
     },
-    title: {
-        letterSpacing: -0.3,
+    greeting: {
+        fontSize: 34,
+        fontWeight: '700',
+        letterSpacing: -1,
+        marginBottom: spacing.xs,
     },
-    proBanner: {
-        marginHorizontal: spacing.lg,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: 16,
-        marginBottom: spacing.xl,
-        borderRadius: 18,
-        backgroundColor: colors.surface1,
-        borderWidth: 0.5,
-        borderColor: colors.borderSoft,
+    email: {
+        opacity: 0.6,
+    },
+    proSection: {
+        marginBottom: spacing['4xl'],
+    },
+    proCard: {
+        borderRadius: radius.xl,
         overflow: 'hidden',
     },
-    proBannerContent: {
+    proContent: {
+        padding: spacing['2xl'],
+        gap: spacing.xl,
+    },
+    proLabelRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: spacing.md,
-        flex: 1,
+        gap: 6,
+        marginBottom: spacing.sm,
     },
-    proIconContainer: {
-        width: 44,
-        height: 44,
-        borderRadius: 12,
-        backgroundColor: colors.surface1,
-        justifyContent: 'center',
-        alignItems: 'center',
+    proDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: colors.accent,
     },
-    proBannerText: {
-        flex: 1,
+    proLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: colors.accent,
+        letterSpacing: 1.2,
     },
     proTitle: {
-        color: colors.textPrimary,
-        fontWeight: '500',
+        marginBottom: spacing.xs,
+        letterSpacing: -0.5,
     },
-    proSubtitle: {
-        color: colors.textSecondary,
+    proDescription: {
+        lineHeight: 20,
+        opacity: 0.7,
     },
-    userCard: {
-        marginHorizontal: spacing.lg,
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 16,
-        gap: spacing.md,
-        marginBottom: spacing.xl,
-        borderRadius: 18,
-        backgroundColor: colors.surface1,
-        borderWidth: 0.5,
-        borderColor: colors.borderSoft,
-        overflow: 'hidden',
-    },
-    avatar: {
-        width: 50,
-        height: 50,
-        borderRadius: 25,
+    upgradeButton: {
         backgroundColor: colors.accent,
+        height: 48,
+        borderRadius: radius.md,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    avatarText: {
+    upgradeButtonText: {
+        fontSize: 16,
+        fontWeight: '600',
         color: colors.bg,
-    },
-    userInfo: {
-        flex: 1,
-    },
-    userEmail: {
-        color: colors.textPrimary,
-    },
-    userPlan: {
-        color: colors.textSecondary,
-    },
-    section: {
-        paddingHorizontal: spacing.lg,
-        marginBottom: spacing.xl,
-    },
-    sectionTitle: {
-        marginBottom: spacing.md,
         letterSpacing: -0.3,
     },
-    settingsGroup: {
-        padding: 0,
-        borderRadius: 18,
-        backgroundColor: colors.surface1,
-        borderWidth: 0.5,
-        borderColor: colors.borderSoft,
-        overflow: 'hidden',
+    settingsContainer: {
+        gap: spacing['3xl'],
     },
-    settingsRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 16,
+    settingsGroup: {
         gap: spacing.md,
     },
-    settingsRowIcon: {
-        width: 28,
-        justifyContent: 'center',
-        alignItems: 'center',
+    groupLabel: {
+        fontSize: 11,
+        letterSpacing: 1.5,
+        fontWeight: '600',
+        marginLeft: spacing.xs,
     },
-    settingsRowContent: {
-        flex: 1,
+    settingsCard: {
+        borderRadius: radius.lg,
+        overflow: 'hidden',
+    },
+    settingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: spacing.lg,
+        paddingHorizontal: spacing.lg,
+        gap: spacing.md,
+        minHeight: 56,
     },
     settingTitle: {
-        color: colors.textPrimary,
+        flex: 1,
     },
-    settingSubtitle: {
-        color: colors.textSecondary,
+    settingRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
     },
     divider: {
-        height: 0.5,
+        height: StyleSheet.hairlineWidth,
         backgroundColor: colors.borderSoft,
-        marginLeft: 64, // 16 (padding) + 28 (icon) + 16 (gap) approx
+        marginLeft: spacing.lg + 22 + spacing.md,
     },
-    logoutButton: {
-        marginHorizontal: spacing.lg,
-        marginBottom: spacing.lg,
+    signOutButton: {
+        alignSelf: 'center',
+        paddingVertical: spacing.xl,
+        paddingHorizontal: spacing['3xl'],
+        marginTop: spacing['2xl'],
+    },
+    modalContent: {
+        paddingVertical: spacing.md,
+    },
+    modalDate: {
+        marginBottom: spacing.xl,
+        textAlign: 'center',
+    },
+    modalSection: {
+        lineHeight: 24,
+        marginBottom: spacing.xl,
+    },
+    emailButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        padding: spacing.lg,
+        backgroundColor: colors.surface1,
+        borderRadius: radius.md,
+        borderWidth: 1,
+        borderColor: colors.borderSoft,
+        marginBottom: spacing.md,
+    },
+    emailButtonText: {
+        flex: 1,
+    },
+    modalFooter: {
+        marginTop: spacing.lg,
+        textAlign: 'center',
+    },
+    policySection: {
+        marginBottom: spacing['2xl'],
+    },
+    policyTitle: {
+        fontWeight: '700',
+        marginBottom: spacing.md,
+        fontSize: 16,
+    },
+    policyText: {
+        lineHeight: 22,
+        marginBottom: spacing.sm,
     },
 });

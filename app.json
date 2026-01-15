@@ -12,7 +12,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.manyajain.Lately1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "LSApplicationQueriesSchemes": [
+          "instagram"
+        ]
       }
     },
     "android": {

@@ -1,3 +1,4 @@
+export { BottomSheet } from './BottomSheet';
 export { Button } from './Button';
 export { GradientBackground } from './GradientBackground';
 export { Input } from './Input';

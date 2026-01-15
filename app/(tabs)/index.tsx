@@ -9,20 +9,20 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { GlassView } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
     Extrapolate,
-    FadeIn,
-    FadeInDown,
-    FadeInUp,
     interpolate,
     runOnJS,
     SharedValue,
     useAnimatedReaction,
     useAnimatedScrollHandler,
     useAnimatedStyle,
-    useSharedValue
+    useSharedValue,
+    withRepeat,
+    withSequence,
+    withTiming
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, GradientBackground, Text } from '../../components/ui';
@@ -116,15 +116,17 @@ export default function HomeScreen() {
 
     // State
     const [refreshing, setRefreshing] = useState(false);
+    const [pageLoading, setPageLoading] = useState(true);
     const [unviewedDumps, setUnviewedDumps] = useState<Dump[]>([]);
     const [recentDumps, setRecentDumps] = useState<Dump[]>([]);
     const [photoCount, setPhotoCount] = useState(0);
 
     const displayName = user?.email?.split('@')[0] || 'friend';
-    const weekRange = getCurrentWeekRange();
+    const weekRange = useMemo(() => getCurrentWeekRange(), []);
 
-    const loadData = useCallback(async () => {
+    const loadData = useCallback(async (isInitial = false) => {
         try {
+            if (isInitial) setPageLoading(true);
             const [unviewed, all] = await Promise.all([
                 getUnviewedDumps(),
                 getAllDumps(),
@@ -141,11 +143,13 @@ export default function HomeScreen() {
             setPhotoCount(photos.length);
         } catch (e) {
             console.error('[Home] Error loading data:', e);
+        } finally {
+            if (isInitial) setPageLoading(false);
         }
     }, []);
 
     useEffect(() => {
-        loadData();
+        loadData(true);
     }, [loadData]);
 
     const onRefresh = useCallback(async () => {
@@ -243,94 +247,95 @@ export default function HomeScreen() {
                 onScroll={scrollHandler}
                 scrollEventThrottle={16}
                 bounces={true}
+                removeClippedSubviews={true}
+                overScrollMode="never"
             >
-                {/* Header */}
-                <Animated.View
-                    entering={FadeInDown.delay(100).duration(400)}
-                    style={styles.header}
-                >
-                    <View>
-                        <Text variant="titleL">
-                            sup, {displayName.toLowerCase()} 👋
-                        </Text>
-                        <Text variant="bodyS" color="secondary" style={styles.subtitle}>
-                            {weekRange.start} - {weekRange.end}
-                        </Text>
-                    </View>
-                    <Pressable onPress={handleOpenSettings}>
-                        <View style={styles.profileButton}>
-                            <Ionicons name="person" size={20} color={colors.textPrimary} />
-                        </View>
-                    </Pressable>
-                </Animated.View>
-
-                {/* Quick Create Card */}
-                <Animated.View entering={FadeInDown.delay(200).duration(400)}>
-                    <Pressable onPress={handleCreateDump}>
-                        <GlassView style={styles.createCard} isInteractive glassEffectStyle="clear">
-                            <View style={styles.createCardContent}>
-                                <View style={styles.createCardText}>
-                                    <Text variant="titleM">
-                                        ready to dump? 📸
-                                    </Text>
-                                    <Text variant="bodyS" color="secondary" style={styles.createCardSubtext}>
-                                        {photoCount > 0
-                                            ? `we found ${photoCount} photos from this week`
-                                            : 'create your next photo dump'}
-                                    </Text>
-                                </View>
-                                <View style={styles.createCardButton}>
-                                    <Ionicons name="add" size={24} color={colors.bg} />
-                                </View>
-                            </View>
-                        </GlassView>
-                    </Pressable>
-                </Animated.View>
-
-                {/* Your Dumps Section */}
-                <Animated.View
-                    entering={FadeIn.delay(400).duration(400)}
-                    style={styles.section}
-                >
-                    <View style={styles.sectionHeader}>
-                        <Text variant="titleM">your dumps</Text>
-                        {unviewedDumps.length > 0 && (
-                            <View style={styles.badge}>
-                                <Text variant="caption" style={styles.badgeText}>
-                                    {unviewedDumps.length} new
+                {pageLoading ? (
+                    <HomeSkeleton insets={insets} />
+                ) : (
+                    <>
+                        {/* Header */}
+                        <View style={styles.header}>
+                            <View>
+                                <Text variant="titleL">
+                                    sup, {displayName.toLowerCase()} 👋
+                                </Text>
+                                <Text variant="bodyS" color="secondary" style={styles.subtitle}>
+                                    {weekRange.start} - {weekRange.end}
                                 </Text>
                             </View>
-                        )}
-                    </View>
-
-                    {recentDumps.length === 0 ? (
-                        <EmptyState onCreatePress={handleCreateDump} />
-                    ) : (
-                        <View style={styles.dumpsGrid}>
-                            {recentDumps.map((dump) => (
-                                <DumpItem
-                                    key={dump.id}
-                                    dump={dump}
-                                    onPress={() => router.push(`/dump/${dump.id}`)}
-                                />
-                            ))}
+                            <Pressable onPress={handleOpenSettings}>
+                                <View style={styles.profileButton}>
+                                    <Ionicons name="person" size={20} color={colors.textPrimary} />
+                                </View>
+                            </Pressable>
                         </View>
-                    )}
-                </Animated.View>
 
-                {/* Stats Card */}
-                <Animated.View entering={FadeInUp.delay(500).duration(400)}>
-                    <GlassView style={styles.statsCard} isInteractive glassEffectStyle="clear">
-                        <Text variant="caption" color="tertiary" style={styles.statsLabel}>
-                            THIS WEEK
-                        </Text>
-                        <View style={styles.statsRow}>
-                            <StatItem label="photos" value={String(photoCount)} emoji="📷" />
-                            <StatItem label="days" value="7" emoji="📅" />
-                            <StatItem label="vibes" value="✨" emoji="" isEmoji />
+                        {/* Content */}
+                        <View style={{ gap: spacing.xl }}>
+                            {/* Quick Create Card */}
+                            <Pressable onPress={handleCreateDump}>
+                                <GlassView style={styles.createCard} isInteractive glassEffectStyle="clear">
+                                    <View style={styles.createCardContent}>
+                                        <View style={styles.createCardText}>
+                                            <Text variant="titleM">
+                                                ready to dump? 📸
+                                            </Text>
+                                            <Text variant="bodyS" color="secondary" style={styles.createCardSubtext}>
+                                                {photoCount > 0
+                                                    ? `we found ${photoCount} photos from this week`
+                                                    : 'create your next photo dump'}
+                                            </Text>
+                                        </View>
+                                        <View style={styles.createCardButton}>
+                                            <Ionicons name="add" size={24} color={colors.bg} />
+                                        </View>
+                                    </View>
+                                </GlassView>
+                            </Pressable>
+
+                            {/* Dumps Section */}
+                            <View style={styles.section}>
+                                <View style={styles.sectionHeader}>
+                                    <Text variant="titleM">your dumps</Text>
+                                    {unviewedDumps.length > 0 && (
+                                        <View style={styles.badge}>
+                                            <Text variant="caption" style={styles.badgeText}>
+                                                {unviewedDumps.length} new
+                                            </Text>
+                                        </View>
+                                    )}
+                                </View>
+
+                                {recentDumps.length === 0 ? (
+                                    <EmptyState onCreatePress={handleCreateDump} />
+                                ) : (
+                                    <View style={styles.dumpsGrid}>
+                                        {recentDumps.map((dump) => (
+                                            <DumpItem
+                                                key={dump.id}
+                                                dump={dump}
+                                                onPress={() => router.push(`/dump/${dump.id}`)}
+                                            />
+                                        ))}
+                                    </View>
+                                )}
+                            </View>
+
+                            {/* Stats Card */}
+                            <GlassView style={styles.statsCard} isInteractive glassEffectStyle="clear">
+                                <Text variant="caption" color="tertiary" style={styles.statsLabel}>
+                                    THIS WEEK
+                                </Text>
+                                <View style={styles.statsRow}>
+                                    <StatItem label="photos" value={String(photoCount)} emoji="📷" />
+                                    <StatItem label="days" value="7" emoji="📅" />
+                                    <StatItem label="vibes" value="✨" emoji="" isEmoji />
+                                </View>
+                            </GlassView>
                         </View>
-                    </GlassView>
-                </Animated.View>
+                    </>
+                )}
 
                 <View style={{ height: 120 }} />
             </Animated.ScrollView>
@@ -339,7 +344,82 @@ export default function HomeScreen() {
 }
 
 // Sub-components
-function EmptyState({ onCreatePress }: { onCreatePress: () => void }) {
+const SkeletonPulse = ({ style }: { style: any }) => {
+    const opacity = useSharedValue(0.3);
+
+    useEffect(() => {
+        opacity.value = withRepeat(
+            withSequence(
+                withTiming(0.7, { duration: 800 }),
+                withTiming(0.3, { duration: 800 })
+            ),
+            -1,
+            true
+        );
+    }, []);
+
+    const animatedStyle = useAnimatedStyle(() => ({
+        opacity: opacity.value,
+    }));
+
+    return <Animated.View style={[style, animatedStyle, { backgroundColor: colors.surface2 }]} />;
+};
+
+const HomeSkeleton = ({ insets }: { insets: any }) => {
+    return (
+        <View style={{ gap: spacing.xl }}>
+            {/* Header Skeleton */}
+            <View style={styles.header}>
+                <View style={{ gap: spacing.xs }}>
+                    <SkeletonPulse style={{ width: 140, height: 32, borderRadius: radius.md }} />
+                    <SkeletonPulse style={{ width: 100, height: 16, borderRadius: radius.sm }} />
+                </View>
+                <SkeletonPulse style={styles.profileButton} />
+            </View>
+
+            {/* Quick Create Skeleton */}
+            <View style={[styles.createCard, { backgroundColor: 'rgba(255,255,255,0.05)' }]}>
+                <View style={styles.createCardContent}>
+                    <View style={{ gap: spacing.xs, flex: 1 }}>
+                        <SkeletonPulse style={{ width: 120, height: 24, borderRadius: radius.sm }} />
+                        <SkeletonPulse style={{ width: '80%', height: 16, borderRadius: 4 }} />
+                    </View>
+                    <SkeletonPulse style={styles.createCardButton} />
+                </View>
+            </View>
+
+            {/* Dumps Skeleton */}
+            <View style={styles.section}>
+                <SkeletonPulse style={{ width: 100, height: 24, borderRadius: radius.sm, marginBottom: spacing.md }} />
+                <View style={styles.dumpsGrid}>
+                    {[1, 2, 3].map((i) => (
+                        <View key={i} style={[styles.dumpItem, { backgroundColor: 'rgba(255,255,255,0.05)' }]}>
+                            <View style={{ gap: spacing.xs, flex: 1 }}>
+                                <SkeletonPulse style={{ width: 150, height: 20, borderRadius: 4 }} />
+                                <SkeletonPulse style={{ width: 100, height: 14, borderRadius: 4 }} />
+                            </View>
+                            <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.1)" />
+                        </View>
+                    ))}
+                </View>
+            </View>
+
+            {/* Stats Skeleton */}
+            <View style={[styles.statsCard, { backgroundColor: 'rgba(255,255,255,0.05)' }]}>
+                <SkeletonPulse style={{ width: 80, height: 14, borderRadius: 4, marginBottom: spacing.md }} />
+                <View style={styles.statsRow}>
+                    {[1, 2, 3].map((i) => (
+                        <View key={i} style={styles.statItem}>
+                            <SkeletonPulse style={{ width: 40, height: 30, borderRadius: radius.sm, marginBottom: 4 }} />
+                            <SkeletonPulse style={{ width: 30, height: 12, borderRadius: 4 }} />
+                        </View>
+                    ))}
+                </View>
+            </View>
+        </View>
+    );
+};
+const EmptyState = memo(({ onCreatePress }: { onCreatePress: () => void }) => {
     return (
         <View style={styles.emptyState}>
             <Text variant="titleL" style={styles.emptyEmoji}>🌟</Text>
@@ -355,9 +435,9 @@ function EmptyState({ onCreatePress }: { onCreatePress: () => void }) {
             />
         </View>
     );
-}
+});
 
-function DumpItem({ dump, onPress }: { dump: Dump; onPress: () => void }) {
+const DumpItem = memo(({ dump, onPress }: { dump: Dump; onPress: () => void }) => {
     const formatDate = (timestamp: number) => {
         const date = new Date(timestamp);
         return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -379,16 +459,16 @@ function DumpItem({ dump, onPress }: { dump: Dump; onPress: () => void }) {
             </GlassView>
         </Pressable>
     );
-}
+});
 
-function StatItem({ label, value, emoji, isEmoji = false }: { label: string; value: string; emoji: string; isEmoji?: boolean; }) {
+const StatItem = memo(({ label, value, emoji, isEmoji = false }: { label: string; value: string; emoji: string; isEmoji?: boolean; }) => {
     return (
         <View style={styles.statItem}>
             <Text variant="titleL">{value} {!isEmoji && emoji}</Text>
             <Text variant="caption" color="tertiary">{label}</Text>
         </View>
     );
-}
+});
 
 const styles = StyleSheet.create({
     screen: { flex: 1 },

@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android", "web"],
+  "apple": {
+    "modules": ["ExpoVisionAestheticsModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.visionaesthetics.ExpoVisionAestheticsModule"]
+  }
+}

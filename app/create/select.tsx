@@ -68,6 +68,8 @@ export default function SelectScreen() {
     const [progress, setProgress] = useState(0);
 
     const dumpType = (params.type as DumpType) || 'weekly';
+    const selectionMode = (params.selectionMode as string) || 'smart';
+    const isManualMode = selectionMode === 'manual';
 
     // Load and analyze photos
     useEffect(() => {
@@ -99,7 +101,15 @@ export default function SelectScreen() {
                     position: null,
                 }));
 
-                setAllPhotos(photos);
+                // Manual mode: skip AI, let user select
+                if (isManualMode) {
+                    setAllPhotos(photos);
+                    setSelectedPhotos([]);
+                    setStage('done');
+                    return;
+                }
+
+                // Smart mode: AI analysis
                 setStage('analyzing');
 
                 let factIndex = 0;
@@ -109,7 +119,7 @@ export default function SelectScreen() {
                     setProgress(prev => Math.min(prev + 0.1, 0.9));
                 }, 1500);
 
-                const selectedCandidates = await analyzeAndPick(fetchedPhotos);
+                const selectedCandidates = await analyzeAndPick(fetchedPhotos, dumpType);
                 setProgress(1);
 
                 const selectedIds = new Set(selectedCandidates.map(p => p.assetId));
@@ -145,7 +155,7 @@ export default function SelectScreen() {
         return () => {
             if (factInterval) clearInterval(factInterval);
         };
-    }, [params.startDate, params.endDate, router]);
+    }, [params.startDate, params.endDate, router, dumpType, isManualMode]);
 
     const handleTogglePhoto = useCallback((photo: PhotoWithSelection) => {
         Haptics.selectionAsync();

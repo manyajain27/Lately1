@@ -1,8 +1,9 @@
 /**
  * Create Dump - Start Screen
  * 
- * Entry point for dump creation - shows options and starts the flow
- * Matches the design reference aesthetic
+ * Entry point for dump creation with two modes:
+ * 1. Smart Selection (AI-powered)
+ * 2. Manual Selection (user picks everything)
  */
 
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -24,14 +25,14 @@ function formatDate(date: Date): string {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-// Get current month name
-function getCurrentMonthName(): string {
-    return new Date().toLocaleDateString('en-US', { month: 'long' }).toLowerCase();
-}
+type SelectionMode = 'smart' | 'manual';
 
 export default function CreateScreen() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
+
+    // Selection mode state
+    const [selectionMode, setSelectionMode] = useState<SelectionMode>('smart');
     const [selectedType, setSelectedType] = useState<DumpType>('weekly');
     const [loading, setLoading] = useState(true);
     const [photoCount, setPhotoCount] = useState(0);
@@ -62,14 +63,6 @@ export default function CreateScreen() {
 
         return { startDate, endDate };
     }, [selectedType, customStartDate, customEndDate]);
-
-    // Auto-open tips
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setShowTips(true);
-        }, 500);
-        return () => clearTimeout(timer);
-    }, []);
 
     // Fetch photo count
     useEffect(() => {
@@ -124,6 +117,15 @@ export default function CreateScreen() {
         setSelectedType(type);
     };
 
+    const handleModeSelect = (mode: SelectionMode) => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        setSelectionMode(mode);
+        // Auto-open tips for manual mode
+        if (mode === 'manual') {
+            setShowTips(true);
+        }
+    };
+
     const handleClose = () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         router.replace('/(tabs)');
@@ -140,13 +142,12 @@ export default function CreateScreen() {
             pathname: '/create/select',
             params: {
                 type: selectedType,
+                selectionMode: selectionMode,
                 startDate: dateRange.startDate.getTime(),
                 endDate: dateRange.endDate.getTime()
             }
         });
     };
-
-
 
     return (
         <GradientBackground>
@@ -159,10 +160,7 @@ export default function CreateScreen() {
                 showsVerticalScrollIndicator={false}
             >
                 {/* Header with back button */}
-                <Animated.View
-                    entering={FadeIn.duration(300)}
-                    style={styles.header}
-                >
+                <Animated.View entering={FadeIn.duration(300)} style={styles.header}>
                     <Pressable onPress={handleClose} style={styles.backButton}>
                         <Ionicons name="close" size={24} color={colors.textPrimary} />
                     </Pressable>
@@ -176,112 +174,110 @@ export default function CreateScreen() {
                 <View style={styles.content}>
                     <Animated.View entering={FadeInDown.delay(100).duration(400)}>
                         <Text variant="titleXL" style={styles.title}>
-                            let's create your dump 📸
+                            create dump
                         </Text>
                         <Text variant="bodyM" color="secondary" style={styles.subtitle}>
-                            {formatDate(dateRange.startDate)} - {formatDate(dateRange.endDate)}
+                            {formatDate(dateRange.startDate)} - {formatDate(dateRange.endDate)} • {photoCount} photos
                         </Text>
                     </Animated.View>
 
-                    {/* Stats Card */}
+                    {/* Selection Mode Cards */}
                     <Animated.View entering={FadeInDown.delay(200).duration(400)}>
-                        <GlassView style={styles.statsCard} isInteractive glassEffectStyle="clear">
-                            <View style={styles.statRow}>
-                                <View style={[styles.stat, { opacity: loading ? 0.4 : 1 }]}>
-                                    <Text variant="titleXL">{photoCount}</Text>
-                                    <Text variant="bodyS" color="secondary">photos found</Text>
-                                </View>
-                                <View style={styles.statDivider} />
-                                <View style={styles.stat}>
-                                    <Text variant="titleXL">10</Text>
-                                    <Text variant="bodyS" color="secondary">will be picked</Text>
-                                </View>
-                            </View>
-                        </GlassView>
-                    </Animated.View>
-
-                    {/* Type Selection */}
-                    <Animated.View entering={FadeInDown.delay(300).duration(400)}>
                         <Text variant="caption" color="tertiary" style={styles.sectionLabel}>
-                            QUICK SELECT
+                            HOW DO YOU WANT TO SELECT?
                         </Text>
-                        <View style={styles.typeOptions}>
-                            <TypeOption
-                                icon="calendar-outline"
-                                title="this week"
-                                subtitle="last 7 days"
-                                selected={selectedType === 'weekly'}
-                                onPress={() => handleTypeSelect('weekly')}
+                        <View style={styles.modeCards}>
+                            <SelectionModeCard
+                                selected={selectionMode === 'smart'}
+                                onPress={() => handleModeSelect('smart')}
+                                icon="sparkles"
+                                iconColor={colors.accent}
+                                title="Smart Selection"
+                                description="AI finds the best photos"
+                                badge="Recommended"
+                                features={[
+                                    'Picks your best 10 photos',
+                                    'Filters out screenshots',
+                                    'Prioritizes great faces'
+                                ]}
                             />
-                            <TypeOption
-                                icon="calendar"
-                                title="this month"
-                                subtitle={getCurrentMonthName()}
-                                selected={selectedType === 'monthly'}
-                                onPress={() => handleTypeSelect('monthly')}
+                            <SelectionModeCard
+                                selected={selectionMode === 'manual'}
+                                onPress={() => handleModeSelect('manual')}
+                                icon="hand-left-outline"
+                                iconColor={colors.textSecondary}
+                                title="Manual Selection"
+                                description="You pick everything"
+                                features={[
+                                    'Browse all your photos',
+                                    'Select up to 10',
+                                    'Full control'
+                                ]}
                             />
-                            <TypeOption
-                                icon="options-outline"
-                                title="custom"
-                                subtitle="pick dates"
-                                selected={selectedType === 'manual'}
-                                onPress={() => handleTypeSelect('manual')}
-                            >
-                                {selectedType === 'manual' && (
-                                    <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.md }}>
-                                        <Pressable
-                                            onPress={() => openPicker('start')}
-                                            style={{ flex: 1, padding: spacing.md, backgroundColor: colors.surface2, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' }}
-                                        >
-                                            <Text variant="caption" color="secondary" style={{ marginBottom: 2 }}>FROM</Text>
-                                            <Text variant="bodyS" style={{ fontWeight: '600' }}>{formatDate(customStartDate)}</Text>
-                                        </Pressable>
-                                        <Pressable
-                                            onPress={() => openPicker('end')}
-                                            style={{ flex: 1, padding: spacing.md, backgroundColor: colors.surface2, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' }}
-                                        >
-                                            <Text variant="caption" color="secondary" style={{ marginBottom: 2 }}>TO</Text>
-                                            <Text variant="bodyS" style={{ fontWeight: '600' }}>{formatDate(customEndDate)}</Text>
-                                        </Pressable>
-                                    </View>
-                                )}
-                            </TypeOption>
                         </View>
                     </Animated.View>
 
-                    {/* How it works */}
-                    <Animated.View
-                        entering={FadeIn.delay(400).duration(400)}
-                        style={styles.howItWorks}
-                    >
-                        <Text variant="caption" color="tertiary" style={styles.howItWorksText}>
-                            ✨ ai analyzes your photos → picks the best ones → you customize → export
+                    {/* Date Range Pills */}
+                    <Animated.View entering={FadeInDown.delay(300).duration(400)}>
+                        <Text variant="caption" color="tertiary" style={styles.sectionLabel}>
+                            TIME PERIOD
                         </Text>
+                        <View style={styles.dateRangePills}>
+                            <DatePill
+                                title="This Week"
+                                selected={selectedType === 'weekly'}
+                                onPress={() => handleTypeSelect('weekly')}
+                            />
+                            <DatePill
+                                title="This Month"
+                                selected={selectedType === 'monthly'}
+                                onPress={() => handleTypeSelect('monthly')}
+                            />
+                            <DatePill
+                                title="Custom"
+                                selected={selectedType === 'manual'}
+                                onPress={() => handleTypeSelect('manual')}
+                            />
+                        </View>
+
+                        {/* Custom Date Pickers */}
+                        {selectedType === 'manual' && (
+                            <View style={styles.customDateRow}>
+                                <Pressable onPress={() => openPicker('start')} style={styles.customDateButton}>
+                                    <Text variant="caption" color="tertiary">FROM</Text>
+                                    <Text variant="bodyS">{formatDate(customStartDate)}</Text>
+                                </Pressable>
+                                <Ionicons name="arrow-forward" size={16} color={colors.textTertiary} />
+                                <Pressable onPress={() => openPicker('end')} style={styles.customDateButton}>
+                                    <Text variant="caption" color="tertiary">TO</Text>
+                                    <Text variant="bodyS">{formatDate(customEndDate)}</Text>
+                                </Pressable>
+                            </View>
+                        )}
                     </Animated.View>
                 </View>
 
-                {/* Start Button */}
+                {/* Continue Button */}
                 <Animated.View
-                    entering={FadeIn.delay(500).duration(300)}
+                    entering={FadeIn.delay(400).duration(300)}
                     style={[styles.buttonContainer, { paddingBottom: insets.bottom + spacing.xl }]}
                 >
                     <Button
-                        title={photoCount > 0 ? "let's go" : "no photos found"}
+                        title={loading ? 'finding photos...' : photoCount > 0 ? "let's go" : "no photos found"}
                         onPress={handleContinue}
                         disabled={loading || photoCount === 0}
-                        style={{ opacity: loading ? 0.8 : 1 }}
                     />
                 </Animated.View>
             </ScrollView>
 
-            {/* Custom Date Picker */}
+            {/* Custom Date Picker Modal */}
             {showDatePicker && (
                 Platform.OS === 'ios' ? (
                     <Modal transparent animationType="fade" onRequestClose={() => setShowDatePicker(false)}>
                         <View style={styles.modalOverlay}>
                             <Pressable style={styles.backdrop} onPress={() => setShowDatePicker(false)} />
                             <GlassView
-                                style={{ margin: spacing.xl, padding: spacing.xl, borderRadius: radius.xl, alignItems: 'center', overflow: 'hidden' }}
+                                style={styles.datePickerModal}
                                 glassEffectStyle="regular"
                             >
                                 <DateTimePicker
@@ -342,7 +338,6 @@ export default function CreateScreen() {
                                 <TipItem emoji="🔤" text="text = texture (screenshots/notes app)" />
                                 <TipItem emoji="📸" text="flash on + 0.5x mode = elite" />
                                 <TipItem emoji="🫣" text="no face pics = added mystery" />
-                                <TipItem emoji="⚡" text="the messy break: one chaos shot mid-dump" />
                             </View>
 
                             <Button
@@ -358,55 +353,95 @@ export default function CreateScreen() {
     );
 }
 
-function TipItem({ emoji, text }: { emoji: string; text: string }) {
-    return (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 2 }}>
-            <Text style={{ fontSize: 24, lineHeight: 30, width: 30, textAlign: 'center' }}>{emoji}</Text>
-            <Text variant="bodyM">{text}</Text>
-        </View>
-    );
-}
-
-// Type option component
-function TypeOption({
-    icon,
-    title,
-    subtitle,
+// Selection Mode Card Component
+function SelectionModeCard({
     selected,
     onPress,
-    children,
+    icon,
+    iconColor,
+    title,
+    description,
+    badge,
+    features
 }: {
-    icon: keyof typeof Ionicons.glyphMap;
-    title: string;
-    subtitle: string;
     selected: boolean;
     onPress: () => void;
-    children?: React.ReactNode;
+    icon: keyof typeof Ionicons.glyphMap;
+    iconColor: string;
+    title: string;
+    description: string;
+    badge?: string;
+    features: string[];
 }) {
     return (
-        <Pressable onPress={onPress} style={styles.typeOption}>
+        <Pressable onPress={onPress} style={styles.modeCard}>
             <GlassView
                 style={[
-                    styles.typeOptionCard,
-                    selected && styles.typeOptionSelected
+                    styles.modeCardInner,
+                    selected && styles.modeCardSelected
                 ]}
                 isInteractive
                 glassEffectStyle="clear"
             >
-                <Ionicons
-                    name={icon}
-                    size={28}
-                    color={selected ? colors.accent : colors.textSecondary}
-                />
-                <Text variant="bodyM" color={selected ? 'accent' : 'primary'}>
+                {/* Badge */}
+                {badge && selected && (
+                    <View style={styles.modeBadge}>
+                        <Text variant="caption" style={styles.modeBadgeText}>{badge}</Text>
+                    </View>
+                )}
+
+                {/* Icon */}
+                <View style={[styles.modeIconContainer, selected && { backgroundColor: `${colors.accent}20` }]}>
+                    <Ionicons name={icon} size={28} color={selected ? colors.accent : iconColor} />
+                </View>
+
+                {/* Title & Description */}
+                <Text variant="titleM" color={selected ? 'primary' : 'secondary'} style={styles.modeTitle}>
                     {title}
                 </Text>
-                <Text variant="caption" color="tertiary">
-                    {subtitle}
+                <Text variant="caption" color="tertiary" style={styles.modeDescription}>
+                    {description}
                 </Text>
-                {children}
+
+                {/* Features */}
+                <View style={styles.modeFeatures}>
+                    {features.map((feature, i) => (
+                        <View key={i} style={styles.modeFeatureRow}>
+                            <Ionicons
+                                name="checkmark-circle"
+                                size={14}
+                                color={selected ? colors.accent : colors.textTertiary}
+                            />
+                            <Text variant="caption" color={selected ? 'secondary' : 'tertiary'} style={{ flex: 1 }}>
+                                {feature}
+                            </Text>
+                        </View>
+                    ))}
+                </View>
             </GlassView>
         </Pressable>
+    );
+}
+
+// Date Pill Component
+function DatePill({ title, selected, onPress }: { title: string; selected: boolean; onPress: () => void }) {
+    return (
+        <Pressable onPress={onPress}>
+            <View style={[styles.datePill, selected && styles.datePillSelected]}>
+                <Text variant="bodyS" color={selected ? 'primary' : 'tertiary'}>
+                    {title}
+                </Text>
+            </View>
+        </Pressable>
+    );
+}
+
+function TipItem({ emoji, text }: { emoji: string; text: string }) {
+    return (
+        <View style={styles.tipRow}>
+            <Text style={styles.tipEmoji}>{emoji}</Text>
+            <Text variant="bodyM" style={{ flex: 1 }}>{text}</Text>
+        </View>
     );
 }
 
@@ -417,11 +452,6 @@ const styles = StyleSheet.create({
     scrollContent: {
         flexGrow: 1,
         paddingHorizontal: spacing.xl,
-    },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
     },
     header: {
         flexDirection: 'row',
@@ -436,66 +466,110 @@ const styles = StyleSheet.create({
     },
     content: {
         flex: 1,
-        justifyContent: 'center',
         gap: spacing.xl,
+        paddingTop: spacing.lg,
     },
     title: {
         textAlign: 'center',
     },
     subtitle: {
-        marginTop: spacing.sm,
+        marginTop: spacing.xs,
         textAlign: 'center',
-    },
-    statsCard: {
-        padding: spacing.xl,
-        borderRadius: radius.xl,
-        overflow: 'hidden',
-    },
-    statRow: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    stat: {
-        flex: 1,
-        alignItems: 'center',
-    },
-    statDivider: {
-        width: 1,
-        height: 40,
-        backgroundColor: colors.borderSoft,
     },
     sectionLabel: {
         letterSpacing: 1,
         marginBottom: spacing.md,
     },
-    typeOptions: {
-        flexDirection: 'row',
-        gap: spacing.sm,
+
+    // Mode Cards
+    modeCards: {
+        gap: spacing.md,
     },
-    typeOption: {
-        flex: 1,
+    modeCard: {
+        width: '100%',
     },
-    typeOptionCard: {
+    modeCardInner: {
         padding: spacing.lg,
-        borderRadius: radius.lg,
-        alignItems: 'center',
-        gap: spacing.xs,
+        borderRadius: radius.xl,
         overflow: 'hidden',
     },
-    typeOptionSelected: {
+    modeCardSelected: {
         borderWidth: 1.5,
         borderColor: colors.accent,
     },
-    howItWorks: {
-        paddingHorizontal: spacing.md,
+    modeBadge: {
+        position: 'absolute',
+        top: spacing.md,
+        right: spacing.md,
+        backgroundColor: colors.accent,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: 2,
+        borderRadius: radius.sm,
     },
-    howItWorksText: {
-        textAlign: 'center',
+    modeBadgeText: {
+        color: colors.bg,
+        fontWeight: '600',
     },
+    modeIconContainer: {
+        width: 52,
+        height: 52,
+        borderRadius: 26,
+        backgroundColor: colors.surface2,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: spacing.md,
+    },
+    modeTitle: {
+        marginBottom: spacing.xs,
+    },
+    modeDescription: {
+        marginBottom: spacing.md,
+    },
+    modeFeatures: {
+        gap: spacing.xs,
+    },
+    modeFeatureRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+    },
+
+    // Date Pills
+    dateRangePills: {
+        flexDirection: 'row',
+        gap: spacing.sm,
+    },
+    datePill: {
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.sm,
+        borderRadius: radius.full,
+        backgroundColor: colors.surface1,
+    },
+    datePillSelected: {
+        backgroundColor: colors.surface2,
+        borderWidth: 1,
+        borderColor: colors.borderSoft,
+    },
+    customDateRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        marginTop: spacing.md,
+    },
+    customDateButton: {
+        flex: 1,
+        padding: spacing.md,
+        backgroundColor: colors.surface1,
+        borderRadius: radius.md,
+        alignItems: 'center',
+    },
+
+    // Button
     buttonContainer: {
         paddingTop: spacing.xl,
     },
+
+    // Modals
     modalOverlay: {
         flex: 1,
         justifyContent: 'flex-end',
@@ -504,6 +578,13 @@ const styles = StyleSheet.create({
     backdrop: {
         ...StyleSheet.absoluteFillObject,
         backgroundColor: 'rgba(0,0,0,0.5)',
+    },
+    datePickerModal: {
+        margin: spacing.xl,
+        padding: spacing.xl,
+        borderRadius: radius.xl,
+        alignItems: 'center',
+        overflow: 'hidden',
     },
     bottomSheet: {
         width: '100%',
@@ -521,6 +602,18 @@ const styles = StyleSheet.create({
         marginBottom: spacing.xl,
     },
     tipsList: {
-        gap: spacing.sm, // Reduced gap
+        gap: spacing.sm,
+    },
+    tipRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        paddingVertical: 2,
+    },
+    tipEmoji: {
+        fontSize: 24,
+        lineHeight: 30,
+        width: 30,
+        textAlign: 'center',
     },
 });
