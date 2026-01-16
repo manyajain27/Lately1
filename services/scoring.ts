@@ -351,13 +351,16 @@ function createFallbackScore(photo: PhotoMeta): ScoredPhoto {
 function createSmartShortlist(photos: ScoredPhoto[], maxCount: number): ScoredPhoto[] {
     if (photos.length <= maxCount) return photos;
 
-    // Sort by finalScore (which already includes favorite boost)
-    // Detailed sort: Final Score -> Aesthetic Score -> Face Count -> Timestamp
-    return photos.sort((a, b) => {
-        if (Math.abs(b.finalScore - a.finalScore) > 0.01) return b.finalScore - a.finalScore;
-        if (Math.abs(b.aestheticScore - a.aestheticScore) > 0.01) return b.aestheticScore - a.aestheticScore;
-        return b.timestamp - a.timestamp;
-    }).slice(0, maxCount);
+    // Sort strictly by final score
+    const sorted = photos.sort((a, b) => b.finalScore - a.finalScore);
+
+    // STRICT FILTER:
+    // 1. Must be a Favorite
+    // OR
+    // 2. Must be > 0.25 (Good quality)
+    // AND then cap at maxCount
+
+    return sorted.filter(p => p.isFavorite || p.finalScore > 0.25).slice(0, maxCount);
 }
 
 
