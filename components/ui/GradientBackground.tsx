@@ -1,10 +1,9 @@
 /**
  * GradientBackground Component
- * Full-screen gradient background using Skia
- * Linear gradient with radial glow at center top
+ * Premium dark gradient with accent glow from top center
  */
 
-import { Canvas, Circle, RadialGradient, Rect, vec } from '@shopify/react-native-skia';
+import { Canvas, Circle, LinearGradient, RadialGradient, Rect, vec } from '@shopify/react-native-skia';
 import React from 'react';
 import { StyleProp, StyleSheet, View, ViewStyle, useWindowDimensions } from 'react-native';
 import { palette } from '../../constants/theme';
@@ -23,33 +22,33 @@ export function GradientBackground({
     return (
         <View style={[styles.container, style]}>
             <Canvas style={StyleSheet.absoluteFill}>
-                {/* Deep Black Background */}
-                <Rect x={0} y={0} width={width} height={height} color="#000000" />
-
-                {/* Top Left - Cyan/Teal Glow (Opal Primary) */}
-                <Circle cx={0} cy={0} r={width * 0.8}>
-                    <RadialGradient
-                        c={vec(0, 0)}
-                        r={width * 0.8}
-                        colors={['rgba(79, 240, 183, 0.15)', 'transparent']}
+                {/* Premium vertical gradient: dark top → subtle color bottom */}
+                <Rect x={0} y={0} width={width} height={height}>
+                    <LinearGradient
+                        start={vec(0, 0)}
+                        end={vec(0, height)}
+                        colors={[
+                            '#0A0A0C',           // Deep black (top)
+                            '#0D0D10',           // Slightly lighter
+                            '#0F0F14',           // Dark gray
+                            '#101018',           // Hint of blue
+                            '#0E1015',           // Dark base (bottom)
+                        ]}
+                        positions={[0, 0.3, 0.5, 0.75, 1]}
                     />
-                </Circle>
+                </Rect>
 
-                {/* Top Right - Purple/Magenta Glow */}
-                <Circle cx={width} cy={height * 0.2} r={width * 0.9}>
+                {/* Radial glow from top center - accent color */}
+                <Circle cx={width / 2} cy={-50} r={width * 0.9}>
                     <RadialGradient
-                        c={vec(width, height * 0.2)}
+                        c={vec(width / 2, -50)}
                         r={width * 0.9}
-                        colors={['rgba(123, 97, 255, 0.12)', 'transparent']}
-                    />
-                </Circle>
-
-                {/* Bottom Center - Warm/Orange Glow */}
-                <Circle cx={width * 0.3} cy={height} r={width}>
-                    <RadialGradient
-                        c={vec(width * 0.3, height)}
-                        r={width}
-                        colors={['rgba(255, 159, 67, 0.08)', 'transparent']}
+                        colors={[
+                            'rgba(79, 240, 183, 0.15)',  // Accent green glow
+                            'rgba(79, 240, 183, 0.05)',
+                            'transparent',
+                        ]}
+                        positions={[0, 0.4, 1]}
                     />
                 </Circle>
             </Canvas>
