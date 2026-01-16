@@ -30,7 +30,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, GradientBackground, Text } from '../../components/ui';
 import { colors, radius, spacing } from '../../constants/theme';
 import { PhotosService } from '../../services/photos';
-import { analyzeAndPick } from '../../services/scoring';
+import { analyzeAndPickWithDetails } from '../../services/scoring';
 import { DumpType, PhotoMeta, PhotoScore } from '../../types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -119,10 +119,23 @@ export default function SelectScreen() {
                     setProgress(prev => Math.min(prev + 0.1, 0.9));
                 }, 1500);
 
-                const selectedCandidates = await analyzeAndPick(fetchedPhotos, dumpType);
+                const result = await analyzeAndPickWithDetails(fetchedPhotos, dumpType, false); // Vision-only, no Gemini
                 setProgress(1);
 
-                const selectedIds = new Set(selectedCandidates.map(p => p.assetId));
+                clearInterval(factInterval);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+                // Navigate to scores preview screen
+                router.push({
+                    pathname: '/create/scores',
+                    params: {
+                        shortlistedJson: JSON.stringify(result.shortlisted),
+                        allScoredJson: JSON.stringify(result.allEligible),
+                    }
+                });
+
+                // Also set up local state for when they come back
+                const selectedIds = new Set(result.final.map(p => p.assetId));
                 let positionCounter = 1;
 
                 const newAllPhotos: PhotoWithSelection[] = photos.map(p => {
@@ -138,10 +151,7 @@ export default function SelectScreen() {
 
                 setAllPhotos(newAllPhotos);
                 setSelectedPhotos(newSelectedPhotos);
-
-                clearInterval(factInterval);
                 setStage('done');
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
             } catch (error) {
                 console.error('Error loading photos:', error);

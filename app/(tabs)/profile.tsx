@@ -6,6 +6,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { GlassView } from 'expo-glass-effect';
 import * as Linking from 'expo-linking';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,6 +17,7 @@ import { syncAllDumps } from '../../services/sync';
 
 export default function ProfileScreen() {
     const insets = useSafeAreaInsets();
+    const router = useRouter();
     const { user, logout } = useAuth();
     const [isSyncing, setIsSyncing] = useState(false);
     const [notifications, setNotifications] = useState(true);
@@ -158,7 +160,21 @@ export default function ProfileScreen() {
                                 onPress={handleTerms}
                             />
                             <Divider />
-                            <SettingRow icon="information-circle-outline" title="version" value="1.0.0" />
+                        </GlassView>
+                    </View>
+
+                    {/* Developer Tools */}
+                    <View style={styles.settingsGroup}>
+                        <Text variant="caption" color="tertiary" style={styles.groupLabel}>
+                            DEVELOPER
+                        </Text>
+                        <GlassView style={styles.settingsCard} glassEffectStyle="clear">
+                            <SettingRow
+                                icon="flask-outline"
+                                title="vision debug"
+                                value="test AI"
+                                onPress={() => router.push('/debug/vision')}
+                            />
                         </GlassView>
                     </View>
                 </View>

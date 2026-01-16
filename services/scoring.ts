@@ -1,10 +1,13 @@
 /**
- * Photo Selection Service - Apple Vision + Gemini
+ * Photo Scoring & Selection Service
  * 
- * Uses iOS 18 Vision framework for aesthetic scoring (on-device, free)
- * + Gemini for final selection from top 50.
+ * Uses native iOS 18 Vision API for aesthetic scoring (on-device, free)
+ * + Optional Gemini for final curation from top picks
+ * 
+ * Same verdict logic as debug tool!
  */
 
+import * as MediaLibrary from 'expo-media-library';
 import { Platform } from 'react-native';
 import { PhotoMeta } from '../types';
 import { GeminiService } from './gemini';
@@ -23,17 +26,72 @@ try {
 
 interface ScoredPhoto extends PhotoMeta {
     aestheticScore: number;
+    isUtility: boolean;
     faceCount: number;
     finalScore: number;
+    localUri?: string;
+    isFavorite: boolean;  // User marked as favorite
+    verdict: 'high' | 'medium' | 'low' | 'excluded';
 }
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const SHORTLIST_SIZE = 50;     // Send to Gemini
+const SHORTLIST_SIZE = 100;    // Captured more good photos (was 50)
 const FINAL_SIZE = 10;         // Final dump size
-const BATCH_SIZE = 20;         // Process this many at a time
+const BATCH_SIZE = 20;         // Process this many at a time (increased for speed)
+
+// ============================================================================
+// SCREENSHOT DETECTION (Same as debug tool)
+// ============================================================================
+
+function isScreenshot(photo: {
+    filename?: string;
+    width: number;
+    isUtility?: boolean;
+}): { is: boolean; reason: string } {
+    // Vision API isUtility flag
+    if (photo.isUtility) {
+        return { is: true, reason: 'Vision API: isUtility = true' };
+    }
+
+    // Filename check
+    if (photo.filename?.toLowerCase().includes('screenshot')) {
+        return { is: true, reason: 'Filename contains "screenshot"' };
+    }
+
+    // Common screenshot widths (iPhone/iPad)
+    const screenshotWidths = [828, 1125, 1170, 1179, 1242, 1284, 1290, 1320, 2048, 2732];
+    if (screenshotWidths.includes(photo.width)) {
+        return { is: true, reason: `Width ${photo.width}px matches screenshot` };
+    }
+
+    // PNG format (screenshots are usually PNG)
+    if (photo.filename?.toLowerCase().endsWith('.png')) {
+        return { is: true, reason: 'PNG format' };
+    }
+
+    return { is: false, reason: '' };
+}
+
+// ============================================================================
+// VERDICT LOGIC (Same as debug tool)
+// ============================================================================
+
+function getVerdict(photo: ScoredPhoto): 'high' | 'medium' | 'low' | 'excluded' {
+    const screenshot = isScreenshot({
+        filename: photo.filename,
+        width: photo.width,
+        isUtility: photo.isUtility,
+    });
+
+    if (screenshot.is) return 'excluded';
+    if (photo.aestheticScore > 0.3) return 'high';
+    if (photo.aestheticScore > 0 && photo.faceCount > 0) return 'medium';
+    if (photo.aestheticScore > -0.3) return 'low';
+    return 'excluded';
+}
 
 // ============================================================================
 // MAIN ENTRY POINT
@@ -41,7 +99,8 @@ const BATCH_SIZE = 20;         // Process this many at a time
 
 export async function analyzeAndPick(
     photos: PhotoMeta[],
-    dumpType: string = 'weekly'
+    dumpType: string = 'weekly',
+    useGemini: boolean = true
 ): Promise<PhotoMeta[]> {
     console.log(`\n\n=== 🧠 PHOTO SELECTION (${photos.length} photos) ===`);
 
@@ -57,29 +116,117 @@ export async function analyzeAndPick(
     console.log('\n[Stage 1] 📊 Scoring with Apple Vision...');
 
     const scored = await scoreAllPhotos(photos);
-    console.log(`  └─ Scored ${scored.length} photos`);
+
+    // Log score distribution
+    const highCount = scored.filter(p => p.verdict === 'high').length;
+    const mediumCount = scored.filter(p => p.verdict === 'medium').length;
+    const lowCount = scored.filter(p => p.verdict === 'low').length;
+    const excludedCount = scored.filter(p => p.verdict === 'excluded').length;
+
+    console.log(`  ├─ Scored ${scored.length} photos`);
+    console.log(`  ├─ 🟢 High: ${highCount}, 🟡 Medium: ${mediumCount}, 🟠 Low: ${lowCount}, ❌ Excluded: ${excludedCount}`);
 
     // ========================================================================
-    // STAGE 2: SMART SHORTLIST (TOP 50 WITH TIME DIVERSITY)
+    // STAGE 2: FILTER & CREATE SHORTLIST
     // ========================================================================
 
     console.log('\n[Stage 2] 🎯 Creating shortlist...');
 
-    const shortlist = createSmartShortlist(scored, SHORTLIST_SIZE);
+    // Remove excluded photos (screenshots, utility, poor quality)
+    const eligible = scored.filter(p => p.verdict !== 'excluded');
+    console.log(`  ├─ ${eligible.length} photos after filtering screenshots`);
+
+    // Sort by final score
+    const sorted = eligible.sort((a, b) => b.finalScore - a.finalScore);
+
+    // Create shortlist with time diversity
+    const shortlist = createSmartShortlist(sorted, SHORTLIST_SIZE);
     console.log(`  └─ Shortlist: ${shortlist.length} photos`);
 
     // ========================================================================
-    // STAGE 3: GEMINI FINAL SELECTION
+    // STAGE 3: FINAL SELECTION (Vision-only or Gemini)
     // ========================================================================
 
-    console.log('\n[Stage 3] ✨ Gemini final selection...');
+    let final: PhotoMeta[];
 
-    const final = await GeminiService.selectBest(shortlist, FINAL_SIZE);
+    if (useGemini && shortlist.length > FINAL_SIZE) {
+        console.log('\n[Stage 3] ✨ Gemini final selection...');
+        final = await GeminiService.selectBest(shortlist, FINAL_SIZE);
+    } else {
+        console.log('\n[Stage 3] 📷 Using Vision-only selection...');
+        // Just take top N by score
+        final = shortlist.slice(0, FINAL_SIZE);
+    }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`\n=== ✅ DONE (${final.length} photos in ${elapsed}s) ===\n`);
 
     return final;
+}
+
+// Extended result for debug/preview purposes
+export interface ScoringResult {
+    final: PhotoMeta[];
+    shortlisted: ScoredPhoto[];
+    allEligible: ScoredPhoto[];  // Non-screenshots
+    excluded: ScoredPhoto[];
+}
+
+export async function analyzeAndPickWithDetails(
+    photos: PhotoMeta[],
+    dumpType: string = 'weekly',
+    useGemini: boolean = true
+): Promise<ScoringResult> {
+    console.log(`\n\n=== 🧠 PHOTO SELECTION (${photos.length} photos) ===`);
+
+    if (photos.length === 0) return { final: [], shortlisted: [], allEligible: [], excluded: [] };
+
+    const startTime = Date.now();
+
+    // STAGE 1: SCORE ALL PHOTOS
+    console.log('\n[Stage 1] 📊 Scoring with Apple Vision...');
+    const scored = await scoreAllPhotos(photos);
+
+    // Log score distribution
+    const highCount = scored.filter(p => p.verdict === 'high').length;
+    const mediumCount = scored.filter(p => p.verdict === 'medium').length;
+    const lowCount = scored.filter(p => p.verdict === 'low').length;
+    const excludedCount = scored.filter(p => p.verdict === 'excluded').length;
+
+    console.log(`  ├─ Scored ${scored.length} photos`);
+    console.log(`  ├─ 🟢 High: ${highCount}, 🟡 Medium: ${mediumCount}, 🟠 Low: ${lowCount}, ❌ Excluded: ${excludedCount}`);
+
+    // STAGE 2: FILTER & CREATE SHORTLIST
+    console.log('\n[Stage 2] 🎯 Creating shortlist...');
+
+    const eligible = scored.filter(p => p.verdict !== 'excluded');
+    const excluded = scored.filter(p => p.verdict === 'excluded');
+    console.log(`  ├─ ${eligible.length} photos after filtering screenshots`);
+
+    const sorted = eligible.sort((a, b) => b.finalScore - a.finalScore);
+    const shortlist = createSmartShortlist(sorted, SHORTLIST_SIZE);
+    console.log(`  └─ Shortlist: ${shortlist.length} photos`);
+
+    // STAGE 3: FINAL SELECTION
+    let final: PhotoMeta[];
+
+    if (useGemini && shortlist.length > FINAL_SIZE) {
+        console.log('\n[Stage 3] ✨ Gemini final selection...');
+        final = await GeminiService.selectBest(shortlist, FINAL_SIZE);
+    } else {
+        console.log('\n[Stage 3] 📷 Using Vision-only selection...');
+        final = shortlist.slice(0, FINAL_SIZE);
+    }
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`\n=== ✅ DONE (${final.length} photos in ${elapsed}s) ===\n`);
+
+    return {
+        final,
+        shortlisted: shortlist,
+        allEligible: eligible,
+        excluded,
+    };
 }
 
 // ============================================================================
@@ -95,129 +242,125 @@ async function scoreAllPhotos(photos: PhotoMeta[]): Promise<ScoredPhoto[]> {
     if (useNative) {
         console.log('  ├─ Using Apple Vision iOS 18');
 
-        // Process in batches
-        for (let i = 0; i < photos.length; i += BATCH_SIZE) {
-            const batch = photos.slice(i, i + BATCH_SIZE);
-            const uris = batch.map(p => p.uri);
+        // Process SEQUENTIALLY (like debug tool) to avoid deadlocks
+        for (let i = 0; i < photos.length; i++) {
+            const photo = photos[i];
 
             try {
-                const scores = await VisionAesthetics.scoreImageBatch(uris);
-                const faces = await Promise.all(uris.map(uri => VisionAesthetics.detectFaces(uri)));
+                // Get extended asset info with localUri
+                const assetInfo = await MediaLibrary.getAssetInfoAsync(photo.assetId);
 
-                batch.forEach((photo, idx) => {
-                    const aesthetic = scores[idx]?.score ?? 0;
-                    const faceCount = faces[idx]?.faceCount ?? 0;
+                if (!assetInfo.localUri) {
+                    results.push(createFallbackScore(photo));
+                    continue;
+                }
 
-                    // Combine scores: aesthetic + face bonus
-                    let finalScore = aesthetic;
-                    if (faceCount > 0) finalScore += 0.3;
-                    if (faceCount > 2) finalScore += 0.1; // Group photo bonus
+                // Score with Vision API
+                let visionResult = { score: 0, isUtility: false };
+                let faceResult = { faceCount: 0 };
 
-                    // Penalize utility photos (screenshots)
-                    if (scores[idx]?.isUtility) finalScore -= 0.5;
+                try {
+                    visionResult = await VisionAesthetics.scoreImage(assetInfo.localUri);
+                } catch (e: any) {
+                    // Vision error, continue with fallback
+                }
 
-                    results.push({
-                        ...photo,
-                        aestheticScore: aesthetic,
-                        faceCount,
-                        finalScore
-                    });
-                });
+                try {
+                    faceResult = await VisionAesthetics.detectFaces(assetInfo.localUri);
+                } catch (e: any) {
+                    // Face detection failure is OK
+                }
 
-                console.log(`  ├─ Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batch.length} photos`);
-            } catch (error: any) {
-                console.warn(`  ├─ Batch error: ${error.message}`);
-                // Fallback: add with neutral score
-                batch.forEach(photo => {
-                    results.push({ ...photo, aestheticScore: 0, faceCount: 0, finalScore: 0 });
-                });
+                // Calculate final score
+                let finalScore = visionResult.score;
+                if (faceResult.faceCount > 0) finalScore += 0.05; // Reduced bonus (was 0.2)
+                if (faceResult.faceCount > 2) finalScore += 0.05; // Reduced bonus (was 0.1)
+
+                // Favorites get a BIG boost to ensure they're always shortlisted
+                const isFavorite = assetInfo.isFavorite || false;
+                if (isFavorite) finalScore += 5.0; // Huge boost for favorites
+
+                const scored: ScoredPhoto = {
+                    ...photo,
+                    filename: assetInfo.filename,
+                    localUri: assetInfo.localUri,
+                    aestheticScore: visionResult.score,
+                    isUtility: visionResult.isUtility || false,
+                    faceCount: faceResult.faceCount || 0,
+                    isFavorite,
+                    finalScore,
+                    verdict: 'low',
+                };
+
+                scored.verdict = getVerdict(scored);
+                results.push(scored);
+
+            } catch (e: any) {
+                results.push(createFallbackScore(photo));
+            }
+
+            // Progress log every 20 photos
+            if ((i + 1) % 20 === 0 || i === photos.length - 1) {
+                console.log(`  ├─ Progress: ${i + 1}/${photos.length} photos scored`);
             }
         }
     } else {
         console.log('  ├─ Using fallback scoring (not iOS 18)');
 
         // Simple fallback based on metadata
-        photos.forEach(photo => {
-            const megapixels = (photo.width * photo.height) / 1_000_000;
-            const resScore = Math.min(1, megapixels / 12);
-
-            // Detect likely screenshot
-            const isScreenshot = photo.isScreenshot ||
-                [1125, 1242, 828, 1170, 1284, 1179].includes(photo.width);
-
-            let finalScore = resScore;
-            if (isScreenshot) finalScore -= 0.5;
-
-            results.push({
-                ...photo,
-                aestheticScore: resScore,
-                faceCount: 0,
-                finalScore
-            });
-        });
+        for (const photo of photos) {
+            results.push(createFallbackScore(photo));
+        }
     }
 
     return results;
+}
+
+function createFallbackScore(photo: PhotoMeta): ScoredPhoto {
+    const megapixels = (photo.width * photo.height) / 1_000_000;
+    const resScore = Math.min(1, megapixels / 12);
+
+    // Simple screenshot heuristic
+    const screenshot = isScreenshot({
+        width: photo.width,
+        filename: undefined,
+    });
+
+    let finalScore = resScore;
+    if (screenshot.is) finalScore -= 0.5;
+
+    const scored: ScoredPhoto = {
+        ...photo,
+        aestheticScore: resScore,
+        isUtility: screenshot.is,
+        faceCount: 0,
+        isFavorite: false,  // Can't know favorites in fallback
+        finalScore,
+        verdict: 'low',
+    };
+
+    scored.verdict = getVerdict(scored);
+    return scored;
 }
 
 // ============================================================================
 // STAGE 2: SMART SHORTLIST
 // ============================================================================
 
+// Simplified shortlist: just top scores + favorites
 function createSmartShortlist(photos: ScoredPhoto[], maxCount: number): ScoredPhoto[] {
-    // Sort by score (highest first)
-    const sorted = [...photos].sort((a, b) => b.finalScore - a.finalScore);
+    if (photos.length <= maxCount) return photos;
 
-    // Group by time (moments)
-    const moments = groupIntoMoments(sorted);
-
-    // Take proportionally from each moment
-    const perMoment = Math.ceil(maxCount / Math.max(moments.length, 1));
-
-    const shortlist: ScoredPhoto[] = [];
-
-    for (const moment of moments) {
-        const topFromMoment = moment.slice(0, perMoment);
-        shortlist.push(...topFromMoment);
-
-        if (shortlist.length >= maxCount) break;
-    }
-
-    // Sort final shortlist by score
-    return shortlist.sort((a, b) => b.finalScore - a.finalScore).slice(0, maxCount);
+    // Sort by finalScore (which already includes favorite boost)
+    // Detailed sort: Final Score -> Aesthetic Score -> Face Count -> Timestamp
+    return photos.sort((a, b) => {
+        if (Math.abs(b.finalScore - a.finalScore) > 0.01) return b.finalScore - a.finalScore;
+        if (Math.abs(b.aestheticScore - a.aestheticScore) > 0.01) return b.aestheticScore - a.aestheticScore;
+        return b.timestamp - a.timestamp;
+    }).slice(0, maxCount);
 }
 
-function groupIntoMoments(photos: ScoredPhoto[]): ScoredPhoto[][] {
-    if (photos.length === 0) return [];
 
-    const MOMENT_GAP = 30 * 60 * 1000; // 30 minutes
-    const moments: ScoredPhoto[][] = [];
-    let currentMoment: ScoredPhoto[] = [];
-
-    // Sort by time for grouping
-    const byTime = [...photos].sort((a, b) => a.timestamp - b.timestamp);
-
-    for (const photo of byTime) {
-        if (currentMoment.length === 0) {
-            currentMoment.push(photo);
-        } else {
-            const lastTime = currentMoment[currentMoment.length - 1].timestamp;
-            if (photo.timestamp - lastTime > MOMENT_GAP) {
-                moments.push(currentMoment);
-                currentMoment = [photo];
-            } else {
-                currentMoment.push(photo);
-            }
-        }
-    }
-
-    if (currentMoment.length > 0) {
-        moments.push(currentMoment);
-    }
-
-    // Sort each moment by score
-    return moments.map(m => m.sort((a, b) => b.finalScore - a.finalScore));
-}
 
 // ============================================================================
 // LEGACY EXPORT

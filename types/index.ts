@@ -31,6 +31,7 @@ export interface Session {
 export interface PhotoMeta {
     assetId: string;
     uri: string;
+    filename?: string;  // For screenshot detection
     timestamp: number;
     width: number;
     height: number;

@@ -1,8 +1,8 @@
 Pod::Spec.new do |s|
   s.name           = 'ExpoVisionAesthetics'
   s.version        = '1.0.0'
-  s.summary        = 'A sample project summary'
-  s.description    = 'A sample project description'
+  s.summary        = 'Native Vision Framework aesthetics scoring for Expo'
+  s.description    = 'Uses iOS 18 Vision API for image aesthetic scoring with fallback for older versions'
   s.author         = ''
   s.homepage       = 'https://docs.expo.dev/modules/'
   s.platforms      = {
@@ -17,6 +17,7 @@ Pod::Spec.new do |s|
   # Swift/Objective-C compatibility
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
+    'SWIFT_VERSION' => '5.9',
   }
 
   s.source_files = "**/*.{h,m,mm,swift,hpp,cpp}"

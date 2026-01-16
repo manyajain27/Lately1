@@ -45,11 +45,12 @@ export const PhotosService = {
             const batch = result.assets.map(asset => ({
                 assetId: asset.id,
                 uri: asset.uri,
+                filename: asset.filename,
                 timestamp: asset.creationTime,
                 width: asset.width,
                 height: asset.height,
                 mediaType: asset.mediaType as 'photo' | 'video',
-                isScreenshot: asset.mediaType === 'photo' && (asset.width === 1125 || asset.width === 1242 || asset.width === 828), // heuristic, simplistic
+                isScreenshot: false, // Will be properly detected by scoring service
                 location: undefined,
             }));
 
@@ -78,6 +79,7 @@ export const PhotosService = {
         return result.assets.map(asset => ({
             assetId: asset.id,
             uri: asset.uri,
+            filename: asset.filename,
             timestamp: asset.creationTime,
             width: asset.width,
             height: asset.height,

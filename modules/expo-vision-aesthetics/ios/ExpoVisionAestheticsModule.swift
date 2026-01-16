@@ -82,8 +82,12 @@ public class ExpoVisionAestheticsModule: Module {
     // Handle file:// URIs
     let cleanUri = uri.replacingOccurrences(of: "file://", with: "")
     
-    guard let url = URL(string: uri) ?? URL(fileURLWithPath: cleanUri) else {
-      return nil
+    // Try URL(string:) first for proper URLs, otherwise use file path
+    let url: URL
+    if let parsedUrl = URL(string: uri), parsedUrl.scheme != nil {
+      url = parsedUrl
+    } else {
+      url = URL(fileURLWithPath: cleanUri)
     }
     
     guard let data = try? Data(contentsOf: url),
@@ -97,14 +101,12 @@ public class ExpoVisionAestheticsModule: Module {
   
   @available(iOS 18.0, *)
   private func scoreWithVisionAPI(image: CGImage) async throws -> [String: Any] {
-    let request = CalculateImageAestheticsScoresRequest()
-    let handler = VNImageRequestHandler(cgImage: image, options: [:])
+    // Create the aesthetics scoring request
+    var request = CalculateImageAestheticsScoresRequest()
     
-    let observations = try await handler.perform(request)
-    
-    guard let observation = observations.first else {
-      return ["score": 0.0, "error": "No observation returned"]
-    }
+    // Perform the request on the CGImage with orientation parameter
+    // Using .up as default orientation for photos
+    let observation = try await request.perform(on: image, orientation: .up)
     
     // Extract scores from observation
     return [

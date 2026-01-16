@@ -2,49 +2,99 @@ package expo.modules.visionaesthetics
 
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import java.net.URL
+import android.net.Uri
+import android.graphics.BitmapFactory
+import java.io.File
+import kotlin.math.abs
+import kotlin.math.min
 
 class ExpoVisionAestheticsModule : Module() {
-  // Each module class must implement the definition function. The definition consists of components
-  // that describes the module's functionality and behavior.
-  // See https://docs.expo.dev/modules/module-api for more details about available components.
   override fun definition() = ModuleDefinition {
-    // Sets the name of the module that JavaScript code will use to refer to the module. Takes a string as an argument.
-    // Can be inferred from module's class name, but it's recommended to set it explicitly for clarity.
-    // The module will be accessible from `requireNativeModule('ExpoVisionAesthetics')` in JavaScript.
     Name("ExpoVisionAesthetics")
 
-    // Defines constant property on the module.
-    Constant("PI") {
-      Math.PI
+    // Check if aesthetics API is available (always false on Android for now)
+    Function("isAestheticsAvailable") {
+      false
     }
 
-    // Defines event names that the module can send to JavaScript.
-    Events("onChange")
-
-    // Defines a JavaScript synchronous function that runs the native code on the JavaScript thread.
-    Function("hello") {
-      "Hello world! 👋"
+    // Score a single image - fallback implementation
+    AsyncFunction("scoreImage") { imageUri: String ->
+      scoreImageFallback(imageUri)
     }
 
-    // Defines a JavaScript function that always returns a Promise and whose native code
-    // is by default dispatched on the different thread than the JavaScript runtime runs on.
-    AsyncFunction("setValueAsync") { value: String ->
-      // Send an event to JavaScript.
-      sendEvent("onChange", mapOf(
-        "value" to value
-      ))
+    // Score multiple images
+    AsyncFunction("scoreImageBatch") { imageUris: List<String> ->
+      imageUris.map { uri -> scoreImageFallback(uri) }
     }
 
-    // Enables the module to be used as a native view. Definition components that are accepted as part of
-    // the view definition: Prop, Events.
-    View(ExpoVisionAestheticsView::class) {
-      // Defines a setter for the `url` prop.
-      Prop("url") { view: ExpoVisionAestheticsView, url: URL ->
-        view.webView.loadUrl(url.toString())
+    // Detect faces - basic stub (would need ML Kit for real implementation)
+    AsyncFunction("detectFaces") { imageUri: String ->
+      mapOf(
+        "faceCount" to 0,
+        "faces" to emptyList<Map<String, Any>>()
+      )
+    }
+  }
+
+  private fun scoreImageFallback(uri: String): Map<String, Any> {
+    return try {
+      // Clean URI
+      val cleanUri = uri.replace("file://", "")
+      val file = File(cleanUri)
+      
+      if (!file.exists()) {
+        return mapOf(
+          "score" to 0.0,
+          "isUtility" to false,
+          "available" to false,
+          "fallback" to true,
+          "error" to "File not found"
+        )
       }
-      // Defines an event that the view can send to JavaScript.
-      Events("onLoad")
+
+      // Load image to get dimensions
+      val options = BitmapFactory.Options().apply {
+        inJustDecodeBounds = true
+      }
+      BitmapFactory.decodeFile(cleanUri, options)
+      
+      val width = options.outWidth
+      val height = options.outHeight
+
+      if (width <= 0 || height <= 0) {
+        return mapOf(
+          "score" to 0.0,
+          "isUtility" to false,
+          "available" to false,
+          "fallback" to true,
+          "error" to "Could not decode image dimensions"
+        )
+      }
+
+      // Basic quality heuristic: higher resolution = better
+      val megapixels = (width.toDouble() * height.toDouble()) / 1_000_000.0
+      val resolutionScore = min(1.0, megapixels / 12.0) // 12MP = max score
+
+      // Aspect ratio preference (avoid very wide or very tall)
+      val aspectRatio = width.toDouble() / height.toDouble()
+      val aspectScore = 1.0 - abs(aspectRatio - 1.0) * 0.3
+
+      val finalScore = (resolutionScore * 0.6 + aspectScore * 0.4) * 2 - 1 // Scale to -1 to 1
+
+      mapOf(
+        "score" to finalScore,
+        "isUtility" to false,
+        "available" to false,
+        "fallback" to true
+      )
+    } catch (e: Exception) {
+      mapOf(
+        "score" to 0.0,
+        "isUtility" to false,
+        "available" to false,
+        "fallback" to true,
+        "error" to (e.message ?: "Unknown error")
+      )
     }
   }
 }
