@@ -2,7 +2,7 @@
  * Preview Screen
  * 
  * Carousel preview of AI-selected photos with reordering
- * Matches the design reference aesthetic
+ * Tap "reorder" for grid mode with drag-to-reorder
  */
 
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -10,7 +10,7 @@ import { GlassView } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -21,6 +21,11 @@ import {
     StyleSheet,
     View
 } from 'react-native';
+import DraggableFlatList, {
+    RenderItemParams,
+    ScaleDecorator,
+} from 'react-native-draggable-flatlist';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, GradientBackground, Text } from '../../components/ui';
@@ -35,6 +40,12 @@ import { Dump, DumpType, PhotoWithScore } from '../../types';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const PREVIEW_WIDTH = SCREEN_WIDTH - spacing.xl * 2;
 const PREVIEW_HEIGHT = PREVIEW_WIDTH * 1.25; // 4:5 aspect ratio (Instagram)
+
+// Grid layout constants
+const GRID_PADDING = spacing.md;
+const GRID_GAP = 4;
+const NUM_COLUMNS = 3;
+const ITEM_SIZE = (SCREEN_WIDTH - GRID_PADDING * 2 - GRID_GAP * (NUM_COLUMNS - 1)) / NUM_COLUMNS;
 
 // Fun facts for loading state
 const FUN_FACTS = [
@@ -69,16 +80,18 @@ export default function PreviewScreen() {
     const [photos, setPhotos] = useState<PhotoWithScore[]>([]);
     const [captions, setCaptions] = useState<string[]>(FALLBACK_CAPTIONS);
     const [captionIndex, setCaptionIndex] = useState(0);
-    const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
     const [currentIndex, setCurrentIndex] = useState(0);
     const [funFact, setFunFact] = useState(FUN_FACTS[0]);
     const [progress, setProgress] = useState(0);
 
+    // Toggle between carousel and reorder mode
+    const [isReorderMode, setIsReorderMode] = useState(false);
+
+    // Track tap counts for triple-tap delete
+    const tapCountRef = useRef<Map<string, { count: number; timer: ReturnType<typeof setTimeout> | null }>>(new Map());
+
     // Get dump type from params
     const dumpType = (params.type as DumpType) || 'weekly';
-
-    // Filter out removed photos
-    const visiblePhotos = useMemo(() => photos.filter(p => !removedIds.has(p.assetId)), [photos, removedIds]);
 
     // Dots Scrubbing Logic
     const [dotsWidth, setDotsWidth] = useState(0);
@@ -88,14 +101,14 @@ export default function PreviewScreen() {
         if (width === 0) return;
 
         const progress = Math.max(0, Math.min(1, x / width));
-        const index = Math.floor(progress * visiblePhotos.length);
+        const index = Math.floor(progress * photos.length);
 
-        if (index !== currentIndex && index >= 0 && index < visiblePhotos.length) {
+        if (index !== currentIndex && index >= 0 && index < photos.length) {
             flatListRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.5 });
             setCurrentIndex(index);
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
         }
-    }, [dotsWidth, visiblePhotos.length, currentIndex]);
+    }, [dotsWidth, photos.length, currentIndex]);
 
     // Fetch and analyze photos
     useEffect(() => {
@@ -185,34 +198,64 @@ export default function PreviewScreen() {
 
     const handleBack = useCallback(() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        router.back();
-    }, [router]);
+        if (isReorderMode) {
+            setIsReorderMode(false);
+        } else {
+            router.back();
+        }
+    }, [router, isReorderMode]);
 
-    const handleRemovePhoto = useCallback((assetId: string) => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        setRemovedIds(prev => new Set([...prev, assetId]));
+    // Triple-tap to delete
+    const handleTripleTap = useCallback((assetId: string) => {
+        const tapData = tapCountRef.current.get(assetId) || { count: 0, timer: null };
+
+        // Clear existing timer
+        if (tapData.timer) {
+            clearTimeout(tapData.timer);
+        }
+
+        const newCount = tapData.count + 1;
+
+        if (newCount >= 3) {
+            // Triple tap achieved!
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            setPhotos(prev => prev.filter(p => p.assetId !== assetId));
+            tapCountRef.current.delete(assetId);
+        } else {
+            // Quick haptic feedback for each tap
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+            // Set new timer to reset count
+            const timer = setTimeout(() => {
+                tapCountRef.current.delete(assetId);
+            }, 500); // 500ms window for triple tap
+
+            tapCountRef.current.set(assetId, { count: newCount, timer });
+        }
     }, []);
 
     const handleScroll = useCallback((event: any) => {
         const offsetX = event.nativeEvent.contentOffset.x;
         const index = Math.round(offsetX / PREVIEW_WIDTH);
-        if (index !== currentIndex && index >= 0 && index < visiblePhotos.length) {
+        if (index !== currentIndex && index >= 0 && index < photos.length) {
             setCurrentIndex(index);
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
         }
-    }, [currentIndex, visiblePhotos.length]);
-
-    const handleMomentumScrollEnd = useCallback(() => {
-        // No extra haptic needed here if we fire in onScroll
-    }, []);
+    }, [currentIndex, photos.length]);
 
     const handleRegenerateCaption = useCallback(() => {
         Haptics.selectionAsync();
         setCaptionIndex(prev => (prev + 1) % captions.length);
     }, [captions.length]);
 
+    // Handle drag end - reorder photos
+    const handleDragEnd = useCallback(({ data }: { data: PhotoWithScore[] }) => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        setPhotos(data);
+    }, []);
+
     const handleExport = async () => {
-        if (visiblePhotos.length === 0) {
+        if (photos.length === 0) {
             Alert.alert('No Photos', 'Add some photos to export.');
             return;
         }
@@ -230,8 +273,8 @@ export default function PreviewScreen() {
                 title: '',
                 startDate,
                 endDate,
-                selectedAssetIds: visiblePhotos.map(p => p.assetId),
-                ordering: visiblePhotos.map((_, i) => i),
+                selectedAssetIds: photos.map(p => p.assetId),
+                ordering: photos.map((_, i) => i),
                 caption: captions[captionIndex],
                 isViewed: true,
                 isExported: false,
@@ -252,16 +295,55 @@ export default function PreviewScreen() {
         }
     };
 
-    const renderItem: ListRenderItem<PhotoWithScore> = useCallback(({ item, index }) => (
+    // Carousel render item
+    const renderCarouselItem: ListRenderItem<PhotoWithScore> = useCallback(({ item, index }) => (
         <PreviewSlide
             item={item}
             index={index}
-            total={visiblePhotos.length}
+            total={photos.length}
             isCurrent={currentIndex === index}
-            onLongPress={() => handleRemovePhoto(item.assetId)}
+            onTripleTap={() => handleTripleTap(item.assetId)}
             isPro={user?.isPro || false}
         />
-    ), [currentIndex, visiblePhotos.length, handleRemovePhoto, user?.isPro]);
+    ), [currentIndex, photos.length, handleTripleTap, user?.isPro]);
+
+    // Visual-first card for reorder mode
+    const renderGridItem = useCallback(({ item, drag, isActive, getIndex }: RenderItemParams<PhotoWithScore>) => {
+        const index = getIndex() ?? 0;
+        return (
+            <ScaleDecorator activeScale={1.03}>
+                <Pressable
+                    onLongPress={drag}
+                    onPress={() => handleTripleTap(item.assetId)}
+                    delayLongPress={80}
+                    style={[
+                        styles.gridItem,
+                        isActive && styles.gridItemActive,
+                    ]}
+                >
+                    {/* Full-bleed Photo */}
+                    <Image
+                        source={{ uri: item.uri }}
+                        style={styles.gridImage}
+                        contentFit="cover"
+                    />
+
+                    {/* Position Pill */}
+                    <View style={styles.positionBadge}>
+                        <Text style={styles.positionText}>{index + 1}</Text>
+                    </View>
+
+                    {/* Drag Handle */}
+                    <View style={[styles.dragHandle, isActive && { backgroundColor: colors.accent }]}>
+                        <Ionicons name="menu" size={20} color="white" />
+                    </View>
+
+                    {/* Active Border */}
+                    {isActive && <View style={styles.activeOverlay} />}
+                </Pressable>
+            </ScaleDecorator>
+        );
+    }, [handleTripleTap]);
 
     // Loading/Analyzing
     if (isLoading || isAnalyzing) {
@@ -287,7 +369,7 @@ export default function PreviewScreen() {
         );
     }
 
-    if (visiblePhotos.length === 0) {
+    if (photos.length === 0) {
         return (
             <GradientBackground>
                 <View style={[styles.loadingContainer, { paddingTop: insets.top }]}>
@@ -298,6 +380,48 @@ export default function PreviewScreen() {
         );
     }
 
+    // =========================================================================
+    // REORDER MODE (Grid with drag-to-reorder)
+    // =========================================================================
+    if (isReorderMode) {
+        return (
+            <GestureHandlerRootView style={{ flex: 1 }}>
+                <GradientBackground>
+                    <View style={[styles.container, { paddingTop: insets.top }]}>
+                        {/* Header */}
+                        <Animated.View entering={FadeIn.duration(200)} style={styles.header}>
+                            <Pressable onPress={handleBack} style={styles.backButton}>
+                                <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
+                            </Pressable>
+                            <View style={styles.headerCenter}>
+                                <Text variant="titleM">reorder</Text>
+                                <Text variant="caption" color="tertiary">drag to reorder • triple-tap to remove</Text>
+                            </View>
+                            <Pressable onPress={() => setIsReorderMode(false)} style={styles.doneButton}>
+                                <Text style={styles.doneText}>done</Text>
+                            </Pressable>
+                        </Animated.View>
+
+                        {/* Draggable List - Single column for reliable dragging */}
+                        <DraggableFlatList
+                            data={photos}
+                            renderItem={renderGridItem}
+                            keyExtractor={(item) => item.assetId}
+                            onDragEnd={handleDragEnd}
+                            contentContainerStyle={styles.listContent}
+                            showsVerticalScrollIndicator={false}
+                            activationDistance={5}
+                            dragHitSlop={{ top: 0, bottom: 0, left: 0, right: 0 }}
+                        />
+                    </View>
+                </GradientBackground>
+            </GestureHandlerRootView>
+        );
+    }
+
+    // =========================================================================
+    // NORMAL MODE (Carousel preview)
+    // =========================================================================
     return (
         <GradientBackground>
             <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -309,7 +433,9 @@ export default function PreviewScreen() {
                     <View style={styles.headerCenter}>
                         <Text variant="titleM">preview</Text>
                     </View>
-                    <View style={styles.headerRight} />
+                    <Pressable onPress={() => setIsReorderMode(true)} style={styles.reorderButton}>
+                        <Ionicons name="grid-outline" size={20} color={colors.accent} />
+                    </Pressable>
                 </Animated.View>
 
                 {/* Main Carousel */}
@@ -317,8 +443,8 @@ export default function PreviewScreen() {
                     <Animated.View entering={FadeInDown.delay(100).duration(400)}>
                         <FlatList
                             ref={flatListRef}
-                            data={visiblePhotos}
-                            renderItem={renderItem}
+                            data={photos}
+                            renderItem={renderCarouselItem}
                             horizontal
                             pagingEnabled
                             showsHorizontalScrollIndicator={false}
@@ -328,7 +454,6 @@ export default function PreviewScreen() {
                             decelerationRate="fast"
                             contentContainerStyle={styles.carouselContent}
                             keyExtractor={(item) => item.assetId}
-                            onMomentumScrollEnd={handleMomentumScrollEnd}
                             getItemLayout={(_, index) => ({
                                 length: PREVIEW_WIDTH,
                                 offset: PREVIEW_WIDTH * index,
@@ -349,7 +474,7 @@ export default function PreviewScreen() {
                         onTouchStart={(e) => handleScrub(e.nativeEvent.locationX)}
                         onTouchMove={(e) => handleScrub(e.nativeEvent.locationX)}
                     >
-                        {visiblePhotos.map((_, index) => (
+                        {photos.map((_, index) => (
                             <View
                                 key={index}
                                 style={[
@@ -378,7 +503,7 @@ export default function PreviewScreen() {
                             <View style={styles.bottomInfo}>
                                 <Text variant="titleM">looking good! ✨</Text>
                                 <Text variant="caption" color="tertiary">
-                                    {visiblePhotos.length} slides ready • long press to remove
+                                    {photos.length} slides • triple-tap to remove
                                 </Text>
                             </View>
 
@@ -396,24 +521,24 @@ export default function PreviewScreen() {
     );
 }
 
-// Memoized Slide Component
+// Memoized Slide Component for Carousel
 const PreviewSlide = memo(({
     item,
     index,
     total,
     isCurrent,
-    onLongPress,
+    onTripleTap,
     isPro
 }: {
     item: PhotoWithScore;
     index: number;
     total: number;
     isCurrent: boolean;
-    onLongPress: () => void;
+    onTripleTap: () => void;
     isPro: boolean;
 }) => {
     return (
-        <Pressable onLongPress={onLongPress} style={styles.slideContainer}>
+        <Pressable onPress={onTripleTap} style={styles.slideContainer}>
             <Animated.View style={[
                 styles.slideWrapper,
                 isCurrent && { transform: [{ scale: 1.02 }] }
@@ -477,7 +602,21 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     headerCenter: { flex: 1, alignItems: 'center' },
-    headerRight: { width: 40 },
+    reorderButton: {
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    doneButton: {
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+    },
+    doneText: {
+        color: colors.accent,
+        fontWeight: '600',
+        fontSize: 16,
+    },
     previewContainer: {
         flex: 1,
         justifyContent: 'center',
@@ -572,4 +711,67 @@ const styles = StyleSheet.create({
     },
     bottomInfo: { alignItems: 'center', gap: spacing.xs },
     exportButton: { marginTop: spacing.sm },
+    // Grid styles for reorder mode
+    gridContent: {
+        paddingHorizontal: GRID_PADDING,
+        paddingBottom: 100,
+    },
+    listContent: {
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.md,
+        paddingBottom: 140,
+        gap: 12,
+    },
+    gridItem: {
+        width: SCREEN_WIDTH - spacing.lg * 2,
+        aspectRatio: 16 / 9,
+        borderRadius: radius.xl,
+        overflow: 'hidden',
+        backgroundColor: colors.surface1,
+    },
+    gridItemActive: {
+        shadowColor: colors.accent,
+        shadowOffset: { width: 0, height: 16 },
+        shadowOpacity: 0.6,
+        shadowRadius: 24,
+        elevation: 15,
+    },
+    gridImage: {
+        width: '100%',
+        height: '100%',
+    },
+    positionBadge: {
+        position: 'absolute',
+        top: 12,
+        left: 12,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    positionText: {
+        color: 'white',
+        fontSize: 14,
+        fontWeight: '700',
+    },
+    dragHandle: {
+        position: 'absolute',
+        top: 12,
+        right: 12,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    activeOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        borderWidth: 3,
+        borderColor: colors.accent,
+        borderRadius: radius.xl,
+    },
 });

@@ -11,6 +11,7 @@ import * as MediaLibrary from 'expo-media-library';
 import { Platform } from 'react-native';
 import { PhotoMeta } from '../types';
 import { GeminiService } from './gemini';
+import { getCachedScores, saveScoresToCache } from './scoreCache';
 
 // Import native module conditionally
 let VisionAesthetics: any = null;
@@ -235,18 +236,63 @@ export async function analyzeAndPickWithDetails(
 
 async function scoreAllPhotos(photos: PhotoMeta[]): Promise<ScoredPhoto[]> {
     const results: ScoredPhoto[] = [];
+    const newScoresToCache: Array<{
+        assetId: string;
+        aestheticScore: number;
+        isUtility: boolean;
+        faceCount: number;
+        isFavorite: boolean;
+        finalScore: number;
+    }> = [];
+
+    // ========================================================================
+    // STEP 1: Check cache for existing scores
+    // ========================================================================
+    const assetIds = photos.map(p => p.assetId);
+    const cachedScores = await getCachedScores(assetIds);
+
+    const cacheHits = cachedScores.size;
+    const cacheMisses = photos.length - cacheHits;
+
+    console.log(`  ├─ Cache: ${cacheHits} hits, ${cacheMisses} misses`);
 
     // Check if native module is available
     const useNative = Platform.OS === 'ios' && VisionAesthetics?.isAestheticsAvailable?.();
 
     if (useNative) {
         console.log('  ├─ Using Apple Vision iOS 18');
+    } else {
+        console.log('  ├─ Using fallback scoring (not iOS 18)');
+    }
 
-        // Process SEQUENTIALLY (like debug tool) to avoid deadlocks
-        for (let i = 0; i < photos.length; i++) {
-            const photo = photos[i];
+    // ========================================================================
+    // STEP 2: Process each photo (use cache or score)
+    // ========================================================================
+    let scoredCount = 0;
 
-            try {
+    for (let i = 0; i < photos.length; i++) {
+        const photo = photos[i];
+        const cached = cachedScores.get(photo.assetId);
+
+        // CACHE HIT - Use cached score
+        if (cached) {
+            const scored: ScoredPhoto = {
+                ...photo,
+                aestheticScore: cached.a,
+                isUtility: cached.u,
+                faceCount: cached.f,
+                isFavorite: cached.fav,
+                finalScore: cached.fs,
+                verdict: 'low',
+            };
+            scored.verdict = getVerdict(scored);
+            results.push(scored);
+            continue;
+        }
+
+        // CACHE MISS - Score with Vision API
+        try {
+            if (useNative) {
                 // Get extended asset info with localUri
                 const assetInfo = await MediaLibrary.getAssetInfoAsync(photo.assetId);
 
@@ -273,12 +319,12 @@ async function scoreAllPhotos(photos: PhotoMeta[]): Promise<ScoredPhoto[]> {
 
                 // Calculate final score
                 let finalScore = visionResult.score;
-                if (faceResult.faceCount > 0) finalScore += 0.05; // Reduced bonus (was 0.2)
-                if (faceResult.faceCount > 2) finalScore += 0.05; // Reduced bonus (was 0.1)
+                if (faceResult.faceCount > 0) finalScore += 0.05;
+                if (faceResult.faceCount > 2) finalScore += 0.05;
 
-                // Favorites get a BIG boost to ensure they're always shortlisted
+                // Favorites get a BIG boost
                 const isFavorite = assetInfo.isFavorite || false;
-                if (isFavorite) finalScore += 5.0; // Huge boost for favorites
+                if (isFavorite) finalScore += 5.0;
 
                 const scored: ScoredPhoto = {
                     ...photo,
@@ -295,22 +341,51 @@ async function scoreAllPhotos(photos: PhotoMeta[]): Promise<ScoredPhoto[]> {
                 scored.verdict = getVerdict(scored);
                 results.push(scored);
 
-            } catch (e: any) {
-                results.push(createFallbackScore(photo));
-            }
+                // Queue for cache save
+                newScoresToCache.push({
+                    assetId: photo.assetId,
+                    aestheticScore: visionResult.score,
+                    isUtility: visionResult.isUtility || false,
+                    faceCount: faceResult.faceCount || 0,
+                    isFavorite,
+                    finalScore,
+                });
 
-            // Progress log every 20 photos
-            if ((i + 1) % 20 === 0 || i === photos.length - 1) {
-                console.log(`  ├─ Progress: ${i + 1}/${photos.length} photos scored`);
-            }
-        }
-    } else {
-        console.log('  ├─ Using fallback scoring (not iOS 18)');
+                scoredCount++;
+            } else {
+                // Fallback scoring
+                const fallback = createFallbackScore(photo);
+                results.push(fallback);
 
-        // Simple fallback based on metadata
-        for (const photo of photos) {
+                // Cache fallback too
+                newScoresToCache.push({
+                    assetId: photo.assetId,
+                    aestheticScore: fallback.aestheticScore,
+                    isUtility: fallback.isUtility,
+                    faceCount: fallback.faceCount,
+                    isFavorite: fallback.isFavorite,
+                    finalScore: fallback.finalScore,
+                });
+            }
+        } catch (e: any) {
             results.push(createFallbackScore(photo));
         }
+
+        // Progress log every 20 NEW photos scored
+        if (scoredCount > 0 && (scoredCount % 20 === 0 || i === photos.length - 1)) {
+            console.log(`  ├─ Progress: ${scoredCount}/${cacheMisses} new photos scored`);
+        }
+    }
+
+    // ========================================================================
+    // STEP 3: Save new scores to cache (non-blocking)
+    // ========================================================================
+    if (newScoresToCache.length > 0) {
+        console.log(`  ├─ Caching ${newScoresToCache.length} new scores...`);
+        // Fire and forget - don't await
+        saveScoresToCache(newScoresToCache).catch((error: unknown) =>
+            console.warn('[Scoring] Cache save error:', error)
+        );
     }
 
     return results;

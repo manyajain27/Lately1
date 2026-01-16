@@ -162,8 +162,8 @@ export default function HomeScreen() {
     const loadData = useCallback(async () => {
         try {
             const all = await getAllDumps();
-            // Sort by startDate descending (newest first)
-            const sorted = [...all].sort((a, b) => b.startDate - a.startDate);
+            // Sort by createdAt descending (most recently created first)
+            const sorted = [...all].sort((a, b) => b.createdAt - a.createdAt);
             setRecentDumps(sorted);
 
             const endDate = new Date();
