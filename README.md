@@ -6,10 +6,6 @@ Lately uses on-device machine learning to automatically curate your best photos 
 
 ---
 
-## Project Status
-
-Currently on hold, picking this back up soon.
-
 ## Highlights
 
 ### On-Device AI Photo Scoring
