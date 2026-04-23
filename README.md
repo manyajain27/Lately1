@@ -6,42 +6,42 @@ Lately uses on-device machine learning to automatically curate your best photos 
 
 ---
 
-## ✨ Highlights
+## Highlights
 
-### 🧠 On-Device AI Photo Scoring
+### On-Device AI Photo Scoring
 - **Apple Vision Framework** (iOS 18) for aesthetic scoring
 - Analyzes composition, lighting, and visual quality
 - Face detection for people shots
 - Utility detection to filter screenshots automatically
 - **100% on-device** - photos never leave your phone
 
-### ⚡ Lightning Fast with Smart Caching
+### Lightning Fast with Smart Caching
 - Scores are cached locally after first analysis
 - **First run:** ~60 seconds for 500 photos
 - **Subsequent runs:** ~0 seconds (instant from cache)
 - Only new photos are scored - existing ones load from cache
 
-### 🎯 Smart Photo Selection
+### Smart Photo Selection
 - Automatic screenshot filtering (bye bye receipts!)
 - Quality threshold enforcement (>0.25 score)
 - Favorite photos always prioritized (❤️ = guaranteed shortlist)
 - Face bonus for people shots
 - Top 10 curated from shortlist of 100
 
-### 📱 Premium UX
+### Premium UX
 - **Drag-to-reorder** with Instagram-quality smoothness
 - **Triple-tap to delete** (no accidental removals)
 - Beautiful carousel preview with dot scrubbing
 - Glassmorphic UI with premium animations
 - Export directly to camera roll
 
-### ✈️ Works Completely Offline
+### Works Completely Offline
 - No internet required for photo analysis
 - No API calls or cloud processing
 - Create dumps on airplane mode
 - Complete privacy - nothing uploaded
 
-### 💰 Zero Backend Costs
+### Zero Backend Costs
 - No API fees (Apple Vision is free forever)
 - No server hosting needed
 - No rate limits or quotas
@@ -63,7 +63,7 @@ Lately uses on-device machine learning to automatically curate your best photos 
 
 ---
 
-## 📦 Getting Started
+## Getting Started
 
 ### Prerequisites
 - Node.js 18+
@@ -85,7 +85,7 @@ npx expo run:ios
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 Lately1/
@@ -106,7 +106,7 @@ Lately1/
 
 ---
 
-## 🔮 Roadmap
+## Roadmap
 
 - [ ] Android support (fallback scoring)
 - [ ] iCloud sync for dumps
